@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -29,10 +30,18 @@ def test_secret_values_are_not_revealed(tmp_path: Path) -> None:
 
 def test_database_credentials_are_not_revealed() -> None:
     database_url = "postgresql+psycopg://user:db-password@localhost/mltrade"
+    settings = Settings(database_url=database_url)
 
-    rendered = repr(Settings(database_url=database_url))
+    rendered = repr(settings)
+    serialized = settings.model_dump()
+    serialized_json = settings.model_dump_json()
 
+    assert settings.database_url == database_url
     assert database_url not in rendered
+    assert "db-password" not in str(serialized)
+    assert "db-password" not in serialized_json
+    assert serialized["database_url"] == "[REDACTED]"
+    assert json.loads(serialized_json)["database_url"] == "[REDACTED]"
 
 
 def test_environment_variables_use_mltrade_prefix(

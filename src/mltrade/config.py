@@ -1,7 +1,13 @@
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    Field,
+    SecretStr,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +51,10 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"log_level must be one of {sorted(allowed)}")
         return normalized
+
+    @field_serializer("database_url")
+    def redact_database_url(self, value: str) -> str:
+        return "[REDACTED]"
 
     @model_validator(mode="after")
     def reject_live_trading(self) -> "Settings":
