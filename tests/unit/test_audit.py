@@ -28,3 +28,4 @@ def test_audit_service_appends_structured_event() -> None:
     assert stored is not None
     assert stored.event_type == "risk.trading_blocked"
     assert stored.payload == {"reason": "stale_data"}
+    engine.dispose()
