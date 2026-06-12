@@ -27,6 +27,14 @@ def test_secret_values_are_not_revealed(tmp_path: Path) -> None:
     assert "paper-secret" not in rendered
 
 
+def test_database_credentials_are_not_revealed() -> None:
+    database_url = "postgresql+psycopg://user:db-password@localhost/mltrade"
+
+    rendered = repr(Settings(database_url=database_url))
+
+    assert database_url not in rendered
+
+
 def test_environment_variables_use_mltrade_prefix(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

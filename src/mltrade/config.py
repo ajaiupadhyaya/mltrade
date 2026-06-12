@@ -1,7 +1,7 @@
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +15,10 @@ class Environment(StrEnum):
 class Settings(BaseSettings):
     environment: Environment = Environment.LOCAL
     data_root: Path = Path("data")
-    database_url: str = "sqlite+pysqlite:///data/operations.db"
+    database_url: str = Field(
+        default="sqlite+pysqlite:///data/operations.db",
+        repr=False,
+    )
     alpaca_api_key: SecretStr | None = None
     alpaca_api_secret: SecretStr | None = None
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
