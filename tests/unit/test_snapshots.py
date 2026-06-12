@@ -85,3 +85,25 @@ def test_store_rejects_symlinked_dataset_directory(tmp_path: Path) -> None:
         SnapshotStore(root).save_manifest(make_manifest())
 
     assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    (
+        "",
+        ".",
+        "..",
+        "../secret.parquet",
+        r"..\secret.parquet",
+        "/tmp/secret.parquet",
+        r"C:\secret.parquet",
+    ),
+)
+def test_manifest_rejects_unsafe_data_file_paths(
+    unsafe_path: str,
+) -> None:
+    values = make_manifest().model_dump()
+    values["data_files"] = (unsafe_path,)
+
+    with pytest.raises(ValidationError, match="safe relative paths"):
+        DatasetManifest.model_validate(values)

@@ -1,6 +1,7 @@
 import warnings
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Self, override
 
 from pydantic import (
@@ -80,6 +81,16 @@ class DatasetManifest(BaseModel):
     @classmethod
     def require_relative_files(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
-            if value.startswith("/") or ".." in value.split("/"):
+            posix_path = PurePosixPath(value)
+            windows_path = PureWindowsPath(value)
+            if (
+                not value
+                or value == "."
+                or posix_path.is_absolute()
+                or windows_path.is_absolute()
+                or windows_path.drive
+                or ".." in posix_path.parts
+                or ".." in windows_path.parts
+            ):
                 raise ValueError("data_files must contain safe relative paths")
         return values
