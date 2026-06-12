@@ -107,3 +107,23 @@ def test_manifest_rejects_unsafe_data_file_paths(
 
     with pytest.raises(ValidationError, match="safe relative paths"):
         DatasetManifest.model_validate(values)
+
+
+def test_load_rejects_symlinked_manifest_file(tmp_path: Path) -> None:
+    manifest = make_manifest()
+    snapshot_dir = (
+        tmp_path / manifest.dataset / manifest.snapshot_id
+    )
+    snapshot_dir.mkdir(parents=True)
+    outside = tmp_path / "outside-manifest.json"
+    outside.write_text(
+        manifest.model_dump_json(),
+        encoding="utf-8",
+    )
+    (snapshot_dir / "manifest.json").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsafe manifest"):
+        SnapshotStore(tmp_path).load_manifest(
+            manifest.dataset,
+            manifest.snapshot_id,
+        )

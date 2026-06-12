@@ -27,6 +27,8 @@ class SnapshotStore:
         self,
         dataset: str,
         snapshot_id: str,
+        *,
+        create: bool,
     ) -> Iterator[int]:
         safe_dataset = require_safe_path_segment(dataset)
         safe_snapshot_id = require_safe_path_segment(snapshot_id)
@@ -36,10 +38,11 @@ class SnapshotStore:
         try:
             try:
                 for segment in (safe_dataset, safe_snapshot_id):
-                    try:
-                        os.mkdir(segment, dir_fd=current_fd)
-                    except FileExistsError:
-                        pass
+                    if create:
+                        try:
+                            os.mkdir(segment, dir_fd=current_fd)
+                        except FileExistsError:
+                            pass
                     next_fd = os.open(segment, flags, dir_fd=current_fd)
                     os.close(current_fd)
                     current_fd = next_fd
@@ -60,6 +63,7 @@ class SnapshotStore:
         with self._open_snapshot_dir(
             manifest.dataset,
             manifest.snapshot_id,
+            create=True,
         ) as directory_fd:
             temporary_fd = os.open(
                 temporary_name,
@@ -92,7 +96,21 @@ class SnapshotStore:
         return target
 
     def load_manifest(self, dataset: str, snapshot_id: str) -> DatasetManifest:
-        target = self.snapshot_dir(dataset, snapshot_id) / "manifest.json"
-        return DatasetManifest.model_validate_json(
-            target.read_text(encoding="utf-8")
-        )
+        with self._open_snapshot_dir(
+            dataset,
+            snapshot_id,
+            create=False,
+        ) as directory_fd:
+            try:
+                manifest_fd = os.open(
+                    "manifest.json",
+                    os.O_RDONLY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+            except OSError as error:
+                raise ValueError(
+                    "unsafe manifest path or unavailable manifest"
+                ) from error
+            with os.fdopen(manifest_fd, encoding="utf-8") as handle:
+                payload = handle.read()
+        return DatasetManifest.model_validate_json(payload)
