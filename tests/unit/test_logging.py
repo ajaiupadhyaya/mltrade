@@ -13,6 +13,9 @@ def test_logging_emits_json_without_secret_values(capsys) -> None:
         "data_snapshot_validated",
         dataset="daily_prices",
         api_secret="paper-secret",
+        database_url=(
+            "postgresql+psycopg://mltrade:database-password@localhost/mltrade"
+        ),
         context={"auth_token": "nested-token"},
     )
 
@@ -21,7 +24,9 @@ def test_logging_emits_json_without_secret_values(capsys) -> None:
     assert output["event"] == "data_snapshot_validated"
     assert output["dataset"] == "daily_prices"
     assert output["api_secret"] == "[REDACTED]"
+    assert output["database_url"] == "[REDACTED]"
     assert output["context"]["auth_token"] == "[REDACTED]"
     assert output["level"] == "info"
     assert "paper-secret" not in raw_output
     assert "nested-token" not in raw_output
+    assert "database-password" not in raw_output

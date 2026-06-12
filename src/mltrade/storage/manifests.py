@@ -1,6 +1,15 @@
+import warnings
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any, Self, override
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PydanticDeprecatedSince20,
+    field_validator,
+)
 
 from mltrade.domain.time import require_utc
 
@@ -22,6 +31,40 @@ class DatasetManifest(BaseModel):
     row_count: int = Field(ge=0)
     content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     data_files: tuple[str, ...] = ()
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            raise TypeError("DatasetManifest cannot be updated")
+        return super().model_copy(update=update, deep=deep)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: Any = None,
+        exclude: Any = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError("DatasetManifest cannot be updated")
+        return super().copy(
+            include=include,
+            exclude=exclude,
+            update=update,
+            deep=deep,
+        )
 
     @field_validator("snapshot_id")
     @classmethod

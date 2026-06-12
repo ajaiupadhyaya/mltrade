@@ -11,6 +11,8 @@ _SECRET_MARKERS = (
     "token",
     "api_key",
     "access_key",
+    "database_url",
+    "dsn",
 )
 
 

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import PydanticDeprecatedSince20, ValidationError
 
 from mltrade.storage.manifests import DatasetManifest
 from mltrade.storage.snapshots import SnapshotStore
@@ -54,3 +54,34 @@ def test_store_rejects_unsafe_lookup_segments(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="safe path segment"):
         store.load_manifest("daily_prices", "..")
+
+
+def test_manifest_rejects_unchecked_updates() -> None:
+    manifest = make_manifest()
+
+    with pytest.raises(TypeError, match="DatasetManifest cannot be updated"):
+        manifest.model_copy(update={"row_count": -1})
+
+
+def test_manifest_rejects_legacy_unchecked_updates() -> None:
+    manifest = make_manifest()
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(
+            TypeError,
+            match="DatasetManifest cannot be updated",
+        ):
+            manifest.copy(update={"row_count": -1})
+
+
+def test_store_rejects_symlinked_dataset_directory(tmp_path: Path) -> None:
+    root = tmp_path / "snapshots"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "daily_prices").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside snapshot root"):
+        SnapshotStore(root).save_manifest(make_manifest())
+
+    assert list(outside.iterdir()) == []

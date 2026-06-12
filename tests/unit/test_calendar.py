@@ -22,3 +22,12 @@ def test_last_completed_session_after_market_close() -> None:
     now = datetime(2024, 7, 5, 21, 0, tzinfo=UTC)
 
     assert calendar.last_completed_session(now) == date(2024, 7, 5)
+
+
+def test_early_close_session_uses_actual_close_time() -> None:
+    calendar = XNYSCalendar()
+    before_close = datetime(2024, 7, 3, 16, 59, tzinfo=UTC)
+    at_close = datetime(2024, 7, 3, 17, 0, tzinfo=UTC)
+
+    assert calendar.last_completed_session(before_close) == date(2024, 7, 2)
+    assert calendar.last_completed_session(at_close) == date(2024, 7, 3)

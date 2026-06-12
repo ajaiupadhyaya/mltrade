@@ -10,14 +10,18 @@ from mltrade.storage.manifests import (
 
 class SnapshotStore:
     def __init__(self, root: Path) -> None:
-        self._root = root
+        self._root = root.resolve()
 
     def snapshot_dir(self, dataset: str, snapshot_id: str) -> Path:
         safe_dataset = require_safe_path_segment(dataset)
         safe_snapshot_id = require_safe_path_segment(snapshot_id)
-        return self._root / safe_dataset / safe_snapshot_id
+        candidate = (self._root / safe_dataset / safe_snapshot_id).resolve()
+        if not candidate.is_relative_to(self._root):
+            raise ValueError("snapshot path resolves outside snapshot root")
+        return candidate
 
     def save_manifest(self, manifest: DatasetManifest) -> Path:
+        manifest = DatasetManifest.model_validate(manifest.model_dump())
         directory = self.snapshot_dir(manifest.dataset, manifest.snapshot_id)
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / "manifest.json"
