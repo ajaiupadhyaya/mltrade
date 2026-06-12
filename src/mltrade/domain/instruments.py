@@ -1,5 +1,7 @@
 import re
+from collections.abc import Mapping
 from enum import StrEnum
+from typing import Any, Self, override
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -33,6 +35,17 @@ class InstrumentId(BaseModel):
         if country != "US":
             raise ValueError("the initial mandate supports US instruments only")
         return country
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            raise TypeError("InstrumentId cannot be updated")
+        return super().model_copy(update=update, deep=deep)
 
     def __str__(self) -> str:
         return f"{self.country}:{self.asset_type.value.upper()}:{self.symbol}"
