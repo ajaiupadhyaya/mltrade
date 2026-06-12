@@ -1,11 +1,20 @@
 import re
-from collections.abc import Mapping
+import warnings
+from collections.abc import Mapping, Set
 from enum import StrEnum
 from typing import Any, Self, override
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    PydanticDeprecatedSince20,
+    field_validator,
+)
 
 _SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,14}$")
+type _CopySelection = (
+    Set[int] | Set[str] | Mapping[int, Any] | Mapping[str, Any]
+)
 
 
 class AssetType(StrEnum):
@@ -46,6 +55,29 @@ class InstrumentId(BaseModel):
         if update:
             raise TypeError("InstrumentId cannot be updated")
         return super().model_copy(update=update, deep=deep)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: _CopySelection | None = None,
+        exclude: _CopySelection | None = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError("InstrumentId cannot be updated")
+        return super().copy(
+            include=include,
+            exclude=exclude,
+            update=update,
+            deep=deep,
+        )
 
     def __str__(self) -> str:
         return f"{self.country}:{self.asset_type.value.upper()}:{self.symbol}"

@@ -1,5 +1,5 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import PydanticDeprecatedSince20, ValidationError
 
 from mltrade.domain.instruments import AssetType, InstrumentId
 
@@ -28,3 +28,19 @@ def test_instrument_rejects_symbol_update_via_model_copy() -> None:
 
     with pytest.raises(TypeError, match="InstrumentId cannot be updated"):
         instrument.model_copy(update={"symbol": "BRK/B"})
+
+
+def test_instrument_rejects_country_update_via_legacy_copy() -> None:
+    instrument = InstrumentId(symbol="SPY", asset_type=AssetType.ETF)
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(TypeError, match="InstrumentId cannot be updated"):
+            instrument.copy(update={"country": "CA"})
+
+
+def test_instrument_rejects_symbol_update_via_legacy_copy() -> None:
+    instrument = InstrumentId(symbol="SPY", asset_type=AssetType.ETF)
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(TypeError, match="InstrumentId cannot be updated"):
+            instrument.copy(update={"symbol": "BRK/B"})
