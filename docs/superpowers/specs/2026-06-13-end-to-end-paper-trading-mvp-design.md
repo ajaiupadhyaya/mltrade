@@ -1,7 +1,7 @@
 # End-to-End Paper-Trading MVP Design
 
 Date: 2026-06-13
-Status: Approved direction, pending written-spec review
+Status: Approved design
 
 ## 1. Objective
 
