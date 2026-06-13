@@ -56,6 +56,25 @@ def test_store_rejects_unsafe_lookup_segments(tmp_path: Path) -> None:
         store.load_manifest("daily_prices", "..")
 
 
+def test_snapshot_dir_returns_normalized_in_root_path(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path)
+
+    assert store.snapshot_dir("daily_prices", "snapshot-1") == (
+        tmp_path.resolve() / "daily_prices" / "snapshot-1"
+    )
+
+
+def test_snapshot_dir_rejects_symlink_escape(tmp_path: Path) -> None:
+    root = tmp_path / "snapshots"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "daily_prices").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside snapshot root"):
+        SnapshotStore(root).snapshot_dir("daily_prices", "snapshot-1")
+
+
 def test_manifest_rejects_unchecked_updates() -> None:
     manifest = make_manifest()
 
@@ -126,4 +145,23 @@ def test_load_rejects_symlinked_manifest_file(tmp_path: Path) -> None:
         SnapshotStore(tmp_path).load_manifest(
             manifest.dataset,
             manifest.snapshot_id,
+        )
+
+
+def test_load_rejects_missing_snapshot_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="outside snapshot root"):
+        SnapshotStore(tmp_path).load_manifest(
+            "daily_prices",
+            "missing",
+        )
+
+
+def test_load_rejects_missing_manifest_file(tmp_path: Path) -> None:
+    snapshot_dir = tmp_path / "daily_prices" / "empty"
+    snapshot_dir.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="unavailable manifest"):
+        SnapshotStore(tmp_path).load_manifest(
+            "daily_prices",
+            "empty",
         )
