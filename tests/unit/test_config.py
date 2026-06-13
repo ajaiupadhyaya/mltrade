@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,65 @@ def test_settings_use_safe_local_defaults(tmp_path: Path) -> None:
     assert settings.live_trading_enabled is False
     assert settings.data_root == tmp_path.absolute()
     assert settings.database_url == "sqlite+pysqlite:///data/operations.db"
+
+
+def test_mvp_settings_have_safe_defaults(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path)
+
+    assert settings.reference_equity == Decimal("1000000")
+    assert settings.maximum_position_weight == Decimal("0.25")
+    assert settings.minimum_cash_weight == Decimal("0.05")
+    assert settings.target_annual_volatility == Decimal("0.15")
+    assert settings.maximum_order_weight == Decimal("0.10")
+    assert settings.maximum_rebalance_weight == Decimal("0.50")
+    assert settings.minimum_order_notional == Decimal("500")
+    assert settings.transaction_cost_bps == Decimal("5")
+
+
+def test_paper_environment_requires_paper_url() -> None:
+    with pytest.raises(ValidationError, match=r"paper-api\.alpaca\.markets"):
+        Settings(
+            environment=Environment.PAPER,
+            alpaca_base_url="https://api.alpaca.markets",
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "reference_equity",
+        "maximum_position_weight",
+        "minimum_cash_weight",
+        "target_annual_volatility",
+        "maximum_order_weight",
+        "maximum_rebalance_weight",
+        "minimum_order_notional",
+        "transaction_cost_bps",
+    ],
+)
+def test_mvp_decimal_settings_must_be_strictly_positive(field_name: str) -> None:
+    with pytest.raises(ValidationError, match="greater than 0"):
+        Settings(**{field_name: Decimal("0")})
+
+
+def test_maximum_position_weight_reserves_minimum_cash() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="maximum_position_weight cannot exceed 1 - minimum_cash_weight",
+    ):
+        Settings(
+            maximum_position_weight=Decimal("0.96"),
+            minimum_cash_weight=Decimal("0.05"),
+        )
+
+
+def test_paper_environment_accepts_trailing_slash_on_paper_url() -> None:
+    settings = Settings(
+        environment=Environment.PAPER,
+        alpaca_base_url="https://paper-api.alpaca.markets/",
+    )
+
+    assert settings.alpaca_base_url == "https://paper-api.alpaca.markets/"
 
 
 def test_secret_values_are_not_revealed(tmp_path: Path) -> None:

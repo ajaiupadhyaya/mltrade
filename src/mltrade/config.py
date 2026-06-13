@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 
@@ -28,6 +29,14 @@ class Settings(BaseSettings):
     alpaca_api_key: SecretStr | None = None
     alpaca_api_secret: SecretStr | None = None
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
+    reference_equity: Decimal = Field(default=Decimal("1000000"), gt=0)
+    maximum_position_weight: Decimal = Field(default=Decimal("0.25"), gt=0)
+    minimum_cash_weight: Decimal = Field(default=Decimal("0.05"), gt=0)
+    target_annual_volatility: Decimal = Field(default=Decimal("0.15"), gt=0)
+    maximum_order_weight: Decimal = Field(default=Decimal("0.10"), gt=0)
+    maximum_rebalance_weight: Decimal = Field(default=Decimal("0.50"), gt=0)
+    minimum_order_notional: Decimal = Field(default=Decimal("500"), gt=0)
+    transaction_cost_bps: Decimal = Field(default=Decimal("5"), gt=0)
     live_trading_enabled: bool = False
     log_level: str = "INFO"
 
@@ -60,4 +69,17 @@ class Settings(BaseSettings):
     def reject_live_trading(self) -> "Settings":
         if self.live_trading_enabled:
             raise ValueError("live trading is not available in this release")
+        if (
+            self.environment is Environment.PAPER
+            and self.alpaca_base_url.rstrip("/")
+            != "https://paper-api.alpaca.markets"
+        ):
+            raise ValueError(
+                "paper environment requires "
+                "https://paper-api.alpaca.markets as alpaca_base_url"
+            )
+        if self.maximum_position_weight > Decimal("1") - self.minimum_cash_weight:
+            raise ValueError(
+                "maximum_position_weight cannot exceed 1 - minimum_cash_weight"
+            )
         return self
