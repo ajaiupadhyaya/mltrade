@@ -7,6 +7,7 @@ No network access is required.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from datetime import date, datetime
 from decimal import Decimal
@@ -67,10 +68,13 @@ def _sessions_in_range(start: date, end: date) -> list[date]:
 def _stable_symbol_seed(base_seed: int, symbol: str) -> int:
     """Derive a deterministic per-symbol seed from base_seed and symbol text.
 
-    Uses a simple but collision-resistant integer hash so that per-symbol
-    streams are independent of universe ordering.
+    Uses a SHA-256 digest (stable across processes and PYTHONHASHSEED values)
+    so that per-symbol streams are independent of universe ordering and
+    produce identical results in every Python process.
     """
-    h = hash(symbol) & 0xFFFF_FFFF_FFFF_FFFF  # unsigned 64-bit
+    digest = hashlib.sha256(symbol.encode()).digest()
+    h = int.from_bytes(digest[:8], "little")
+    # 6364136223846793005 is the well-known PCG/Knuth LCG multiplier
     return (base_seed * 6364136223846793005 + h) & 0xFFFF_FFFF_FFFF_FFFF
 
 
@@ -88,7 +92,7 @@ def _generate_symbol_bars(
     initial_price = _INITIAL_PRICES.get(symbol, _DEFAULT_INITIAL_PRICE)
     liquidity_scale = _LIQUIDITY_SCALES.get(symbol, _DEFAULT_LIQUIDITY_SCALE)
 
-    # Trend: slow upward drift (0.8% annualised per bar ≈ 0.003% daily)
+    # Trend: slow upward drift (0.8% annualised per bar ≈ 0.0032% daily)
     trend_per_bar: float = 0.000032
 
     n = len(sessions)
@@ -124,7 +128,9 @@ def _generate_symbol_bars(
 
         # VWAP: a weighted average between open and close, biased intraday
         vwap_raw: float = (open_price + close_price) / 2.0
-        # Clamp vwap to [low, high] to guarantee the invariant
+        # Defensive belt-and-suspenders clamp: midpoint of open/close is
+        # analytically within [low, high], but guard against any future
+        # VWAP formula change that might violate the invariant.
         vwap_raw = max(low_price, min(high_price, vwap_raw))
         vwap: Decimal = Decimal(str(round(vwap_raw, 4)))
 

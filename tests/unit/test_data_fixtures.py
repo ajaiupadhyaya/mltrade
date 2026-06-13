@@ -114,3 +114,26 @@ def test_fixture_rejects_range_without_xnys_sessions() -> None:
             date(2026, 6, 14),
             datetime(2026, 6, 15, tzinfo=UTC),
         )
+
+
+def test_fixture_is_deterministic_across_processes() -> None:
+    import subprocess
+    import sys
+
+    script = (
+        "from mltrade.data.fixtures import DeterministicBarSource;"
+        "from mltrade.universe import MVP_UNIVERSE;"
+        "from datetime import date, datetime, UTC;"
+        "bars = DeterministicBarSource(seed=42).fetch("
+        "    MVP_UNIVERSE, date(2026, 6, 9), date(2026, 6, 12),"
+        "    datetime(2026, 6, 13, tzinfo=UTC));"
+        "print(len(bars), bars[0].close, bars[-1].close, bars[0].vwap)"
+    )
+    first = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    second = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    assert first.stdout == second.stdout
+    assert first.stdout.strip()
