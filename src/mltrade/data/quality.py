@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from decimal import Decimal
 from enum import StrEnum
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -84,7 +84,7 @@ def _warn(code: str, message: str) -> QualityIssue:
 def _check_finite(bar: DailyBar) -> list[QualityIssue]:
     """Defensive finiteness check on all numeric fields of a bar."""
     issues: list[QualityIssue] = []
-    fields: dict[str, Any] = {
+    fields: dict[str, Decimal] = {
         "open": bar.open,
         "high": bar.high,
         "low": bar.low,
