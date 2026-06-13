@@ -1,6 +1,14 @@
-from typing import Self
+import warnings
+from collections.abc import Mapping
+from typing import Any, Self, override
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    PydanticDeprecatedSince20,
+    field_validator,
+    model_validator,
+)
 
 from mltrade.domain.instruments import AssetType, InstrumentId
 
@@ -10,6 +18,40 @@ class Universe(BaseModel):
 
     version: str
     instruments: tuple[InstrumentId, ...]
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            raise TypeError("Universe cannot be updated")
+        return super().model_copy(update=update, deep=deep)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: Any = None,
+        exclude: Any = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError("Universe cannot be updated")
+        return super().copy(
+            include=include,
+            exclude=exclude,
+            update=update,
+            deep=deep,
+        )
 
     @field_validator("version")
     @classmethod

@@ -1,5 +1,5 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import PydanticDeprecatedSince20, ValidationError
 
 from mltrade.domain.instruments import AssetType, InstrumentId
 from mltrade.universe import MVP_UNIVERSE, Universe
@@ -46,3 +46,54 @@ def test_universe_rejects_duplicate_symbols() -> None:
 def test_universe_is_frozen() -> None:
     with pytest.raises(ValidationError, match="frozen"):
         MVP_UNIVERSE.version = "changed"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"version": ""},
+        {
+            "instruments": (
+                MVP_UNIVERSE.instruments[0],
+                MVP_UNIVERSE.instruments[0],
+            )
+        },
+    ],
+)
+def test_universe_rejects_updates_via_model_copy(
+    update: dict[str, object],
+) -> None:
+    with pytest.raises(TypeError, match="Universe cannot be updated"):
+        MVP_UNIVERSE.model_copy(update=update)
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"version": ""},
+        {
+            "instruments": (
+                MVP_UNIVERSE.instruments[0],
+                MVP_UNIVERSE.instruments[0],
+            )
+        },
+    ],
+)
+def test_universe_rejects_updates_via_legacy_copy(
+    update: dict[str, object],
+) -> None:
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(TypeError, match="Universe cannot be updated"):
+            MVP_UNIVERSE.copy(update=update)
+
+
+def test_universe_allows_update_free_deep_copies() -> None:
+    copied = MVP_UNIVERSE.model_copy(deep=True)
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        legacy_copied = MVP_UNIVERSE.copy(deep=True)
+
+    assert copied == MVP_UNIVERSE
+    assert copied is not MVP_UNIVERSE
+    assert legacy_copied == MVP_UNIVERSE
+    assert legacy_copied is not MVP_UNIVERSE

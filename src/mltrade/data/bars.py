@@ -1,15 +1,24 @@
+import warnings
+from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Protocol, Self
+from typing import Annotated, Any, Protocol, Self, override
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PydanticDeprecatedSince20,
+    field_validator,
+    model_validator,
+)
 
 from mltrade.domain.instruments import InstrumentId
 from mltrade.domain.time import require_utc
 from mltrade.universe import Universe
 
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
-NonnegativeInt = Annotated[int, Field(ge=0)]
+NonnegativeInt = Annotated[int, Field(ge=0, strict=True)]
 
 
 class DailyBar(BaseModel):
@@ -26,6 +35,40 @@ class DailyBar(BaseModel):
     trade_count: NonnegativeInt
     source: Annotated[str, Field(min_length=1)]
     ingested_at: datetime
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            raise TypeError("DailyBar cannot be updated")
+        return super().model_copy(update=update, deep=deep)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: Any = None,
+        exclude: Any = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError("DailyBar cannot be updated")
+        return super().copy(
+            include=include,
+            exclude=exclude,
+            update=update,
+            deep=deep,
+        )
 
     @field_validator("ingested_at")
     @classmethod
