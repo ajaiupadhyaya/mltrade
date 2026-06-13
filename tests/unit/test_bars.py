@@ -120,17 +120,46 @@ def test_daily_bar_rejects_updates_via_legacy_copy(
             bar.copy(update=update)
 
 
-def test_daily_bar_allows_update_free_deep_copies() -> None:
+def test_daily_bar_allows_complete_shallow_and_deep_copies() -> None:
     bar = make_bar()
 
+    shallow_copied = bar.model_copy()
     copied = bar.model_copy(deep=True)
+    with pytest.warns(PydanticDeprecatedSince20):
+        legacy_shallow_copied = bar.copy()
     with pytest.warns(PydanticDeprecatedSince20):
         legacy_copied = bar.copy(deep=True)
 
+    assert shallow_copied == bar
+    assert shallow_copied is not bar
     assert copied == bar
     assert copied is not bar
+    assert legacy_shallow_copied == bar
+    assert legacy_shallow_copied is not bar
     assert legacy_copied == bar
     assert legacy_copied is not bar
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"include": {"instrument", "session"}},
+        {"exclude": {"ingested_at"}},
+        {"include": set()},
+        {"exclude": set()},
+    ],
+)
+def test_daily_bar_rejects_partial_legacy_copies(
+    selection: dict[str, set[str]],
+) -> None:
+    bar = make_bar()
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(
+            TypeError,
+            match="DailyBar cannot be partially copied",
+        ):
+            bar.copy(**selection)
 
 
 @pytest.mark.parametrize("field", ["volume", "trade_count"])

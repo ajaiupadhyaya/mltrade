@@ -63,6 +63,13 @@ class DailyBar(BaseModel):
                 stacklevel=2,
             )
             raise TypeError("DailyBar cannot be updated")
+        if include is not None or exclude is not None:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError("DailyBar cannot be partially copied")
         return super().copy(
             include=include,
             exclude=exclude,

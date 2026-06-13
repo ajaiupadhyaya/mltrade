@@ -87,13 +87,40 @@ def test_universe_rejects_updates_via_legacy_copy(
             MVP_UNIVERSE.copy(update=update)
 
 
-def test_universe_allows_update_free_deep_copies() -> None:
+def test_universe_allows_complete_shallow_and_deep_copies() -> None:
+    shallow_copied = MVP_UNIVERSE.model_copy()
     copied = MVP_UNIVERSE.model_copy(deep=True)
 
     with pytest.warns(PydanticDeprecatedSince20):
+        legacy_shallow_copied = MVP_UNIVERSE.copy()
+    with pytest.warns(PydanticDeprecatedSince20):
         legacy_copied = MVP_UNIVERSE.copy(deep=True)
 
+    assert shallow_copied == MVP_UNIVERSE
+    assert shallow_copied is not MVP_UNIVERSE
     assert copied == MVP_UNIVERSE
     assert copied is not MVP_UNIVERSE
+    assert legacy_shallow_copied == MVP_UNIVERSE
+    assert legacy_shallow_copied is not MVP_UNIVERSE
     assert legacy_copied == MVP_UNIVERSE
     assert legacy_copied is not MVP_UNIVERSE
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"include": {"version"}},
+        {"exclude": {"instruments"}},
+        {"include": set()},
+        {"exclude": set()},
+    ],
+)
+def test_universe_rejects_partial_legacy_copies(
+    selection: dict[str, set[str]],
+) -> None:
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(
+            TypeError,
+            match="Universe cannot be partially copied",
+        ):
+            MVP_UNIVERSE.copy(**selection)
