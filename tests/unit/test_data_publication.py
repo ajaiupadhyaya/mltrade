@@ -225,6 +225,8 @@ def test_manifest_metadata_contains_expected_keys(
     assert "schema_version" in meta
     assert "quality_version" in meta
     assert meta["universe_version"] == "mvp-etf-v1"
+    assert meta["schema_version"] == "1"
+    assert meta["quality_version"] == "daily-bar-quality-v1"
 
 
 # ---------------------------------------------------------------------------
