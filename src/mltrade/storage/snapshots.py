@@ -95,6 +95,56 @@ class SnapshotStore:
             os.fsync(directory_fd)
         return target
 
+    def save_data_file(
+        self,
+        dataset: str,
+        snapshot_id: str,
+        filename: str,
+        data: bytes,
+    ) -> Path:
+        """Write *data* as *filename* inside the snapshot directory.
+
+        Uses the same hardened temp-file + exclusive hard-link + fsync
+        pattern as :meth:`save_manifest`.  Returns the absolute path to
+        the written file.
+        """
+        require_safe_path_segment(filename)
+        safe_ds = require_safe_path_segment(dataset)
+        safe_sid = require_safe_path_segment(snapshot_id)
+        directory = self._root / safe_ds / safe_sid
+        target = directory / filename
+        temporary_name = f".data-{uuid4().hex}.tmp"
+        with self._open_snapshot_dir(dataset, snapshot_id, create=True) as directory_fd:
+            temporary_fd = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            try:
+                with os.fdopen(temporary_fd, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.link(
+                    temporary_name,
+                    filename,
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as error:
+                raise FileExistsError(
+                    f"data file already exists: {target}"
+                ) from error
+            finally:
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+            os.fsync(directory_fd)
+        return target
+
     def load_manifest(self, dataset: str, snapshot_id: str) -> DatasetManifest:
         with self._open_snapshot_dir(
             dataset,

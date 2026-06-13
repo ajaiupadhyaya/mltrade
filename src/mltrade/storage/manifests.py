@@ -32,6 +32,7 @@ class DatasetManifest(BaseModel):
     row_count: int = Field(ge=0)
     content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     data_files: tuple[str, ...] = ()
+    metadata: dict[str, str] = Field(default_factory=dict)
 
     @override
     def model_copy(
