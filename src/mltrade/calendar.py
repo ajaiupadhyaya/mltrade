@@ -16,6 +16,18 @@ class XNYSCalendar:
     def is_session(self, session_date: date) -> bool:
         return bool(self._calendar.is_session(pd.Timestamp(session_date)))
 
+    def sessions_in_range(self, start: date, end: date) -> tuple[date, ...]:
+        """Return all XNYS trading sessions in [start, end] inclusive.
+
+        Excludes weekends and exchange holidays.  Returns python ``date``
+        objects in ascending order.
+        """
+        index: Any = self._calendar.sessions_in_range(
+            pd.Timestamp(start),
+            pd.Timestamp(end),
+        )
+        return tuple(ts.date() for ts in index)
+
     def last_completed_session(self, now: datetime) -> date:
         utc_now = require_utc(now)
         candidate = utc_now.date()
