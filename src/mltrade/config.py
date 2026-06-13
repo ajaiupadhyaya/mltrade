@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return "[REDACTED]"
 
     @model_validator(mode="after")
-    def reject_live_trading(self) -> "Settings":
+    def validate_safety_constraints(self) -> "Settings":
         if self.live_trading_enabled:
             raise ValueError("live trading is not available in this release")
         if (

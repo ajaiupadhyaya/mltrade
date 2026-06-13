@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+from mltrade.config import Settings
+
 
 @pytest.fixture
 def fixed_now() -> datetime:
@@ -13,6 +15,7 @@ def fixed_now() -> datetime:
 def isolate_mltrade_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[None]:
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     for name in (
         "MLTRADE_ENVIRONMENT",
         "MLTRADE_DATA_ROOT",

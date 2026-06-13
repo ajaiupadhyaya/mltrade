@@ -17,6 +17,21 @@ def test_settings_use_safe_local_defaults(tmp_path: Path) -> None:
     assert settings.database_url == "sqlite+pysqlite:///data/operations.db"
 
 
+def test_settings_tests_ignore_local_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "MLTRADE_ENVIRONMENT=live\nMLTRADE_REFERENCE_EQUITY=1\n"
+    )
+
+    settings = Settings()
+
+    assert settings.environment is Environment.LOCAL
+    assert settings.reference_equity == Decimal("1000000")
+
+
 def test_mvp_settings_have_safe_defaults(tmp_path: Path) -> None:
     settings = Settings(data_root=tmp_path)
 
