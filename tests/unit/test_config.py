@@ -27,9 +27,28 @@ def test_experiment_paths_default_under_data_root(tmp_path: Path) -> None:
     )
 
 
-def test_explicit_experiment_root_is_absolute(tmp_path: Path) -> None:
-    settings = Settings(data_root=tmp_path, experiment_root=tmp_path / "research")
+def test_explicit_experiment_root_is_absolute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(
+        data_root=tmp_path,
+        experiment_root=Path("nested") / ".." / "research",
+    )
     assert settings.experiment_root == (tmp_path / "research").resolve()
+
+
+def test_explicit_experiment_root_expands_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    settings = Settings(data_root=tmp_path, experiment_root=Path("~/research"))
+
+    assert settings.experiment_root == (home / "research").resolve()
 
 
 def test_settings_tests_ignore_local_dotenv(
