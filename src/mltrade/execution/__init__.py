@@ -29,6 +29,20 @@ Simulation
 ~~~~~~~~~~
 - ``SimulatedBroker`` — in-memory broker for testing / offline workflows
 - ``SubmitOutcome``   — outcome control surface for :class:`SimulatedBroker`
+
+Reconciliation
+~~~~~~~~~~~~~~
+- ``InternalState``              — system's internal beliefs (cash/positions/orders)
+- ``ReconciliationDifference``   — one discrepancy between internal and broker state
+- ``ReconciliationResult``       — collection of differences; ``blocked`` property
+- ``reconcile``                  — compare InternalState vs Broker; returns result
+
+Service
+~~~~~~~
+- ``ExecutionService`` — orchestrates preview + safe idempotent submit
+- ``Preview``          — pre-submit snapshot (intents + reconciliation + risk)
+- ``SubmitResult``     — aggregate outcome of a submit call
+- ``IntentOutcome``    — per-intent submit result
 """
 
 from mltrade.execution.broker import (
@@ -43,6 +57,18 @@ from mltrade.execution.broker import (
     OrderStatus,
 )
 from mltrade.execution.intents import ExecutionIntent, build_intent
+from mltrade.execution.reconciliation import (
+    InternalState,
+    ReconciliationDifference,
+    ReconciliationResult,
+    reconcile,
+)
+from mltrade.execution.service import (
+    ExecutionService,
+    IntentOutcome,
+    Preview,
+    SubmitResult,
+)
 from mltrade.execution.simulated import SimulatedBroker, SubmitOutcome
 
 __all__ = [
@@ -54,9 +80,17 @@ __all__ = [
     "BrokerPosition",
     "BrokerTimeout",
     "ExecutionIntent",
+    "ExecutionService",
+    "IntentOutcome",
+    "InternalState",
     "OrderSide",
     "OrderStatus",
+    "Preview",
+    "ReconciliationDifference",
+    "ReconciliationResult",
     "SimulatedBroker",
     "SubmitOutcome",
+    "SubmitResult",
     "build_intent",
+    "reconcile",
 ]
