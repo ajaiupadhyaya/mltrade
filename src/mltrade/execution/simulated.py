@@ -124,6 +124,8 @@ class SimulatedBroker:
         partial_fill_fraction: float = 0.5,
         fill_timestamp: datetime | None = None,
     ) -> None:
+        if not 0.0 < partial_fill_fraction < 1.0:
+            raise ValueError("partial_fill_fraction must be in the open (0, 1)")
         self._account = account
         self._default_outcome = default_outcome
         self._outcome_map: dict[str, SubmitOutcome] = outcome_map or {}

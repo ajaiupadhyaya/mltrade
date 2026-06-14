@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from mltrade.execution import ExecutionIntent, OrderSide, build_intent
 
@@ -173,7 +174,7 @@ def test_cross_process_stability() -> None:
 def test_intent_is_frozen() -> None:
     """ExecutionIntent must reject field mutation."""
     intent = _make()
-    with pytest.raises((TypeError, Exception)):
+    with pytest.raises((ValidationError, TypeError)):
         intent.symbol = "QQQ"  # type: ignore[misc]
 
 

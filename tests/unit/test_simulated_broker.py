@@ -246,6 +246,29 @@ def test_timeout_after_outcome() -> None:
     assert order.status is OrderStatus.NEW
 
 
+def test_dedup_after_timeout_after() -> None:
+    """Re-submitting after TIMEOUT_AFTER returns the existing NEW order, no raise.
+
+    This is the idempotent-retry contract Task 12 relies on: a caller that
+    catches BrokerTimeout and retries must get the already-accepted order back
+    without raising again or creating a duplicate.
+    """
+    broker = SimulatedBroker(
+        paper_account(), default_outcome=SubmitOutcome.TIMEOUT_AFTER
+    )
+    intent = make_intent()
+
+    with pytest.raises(BrokerTimeout):
+        broker.submit(intent)
+
+    # Retry: dedup path returns the existing NEW order without raising.
+    retried = broker.submit(intent)
+    assert retried.status is OrderStatus.NEW
+    assert retried.client_order_id == intent.client_order_id
+    assert len(broker.list_orders()) == 1
+    assert broker.list_recent_fills() == ()
+
+
 def test_timeout_after_no_fills() -> None:
     """TIMEOUT_AFTER must not create a fill (order is NEW, not filled)."""
     broker = SimulatedBroker(
