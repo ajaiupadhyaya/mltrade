@@ -8,7 +8,13 @@ from mltrade.operations.audit import AuditService
 from mltrade.operations.database import build_engine, session_scope
 from mltrade.operations.models import AuditEvent, Base
 
-pytestmark = pytest.mark.contract
+pytestmark = [
+    pytest.mark.contract,
+    pytest.mark.skipif(
+        not os.environ.get("MLTRADE_TEST_DATABASE_URL"),
+        reason="requires MLTRADE_TEST_DATABASE_URL and a running Postgres",
+    ),
+]
 
 
 def test_postgres_persists_audit_event() -> None:

@@ -27,7 +27,13 @@ from mltrade.operations.models import Base
 from mltrade.operations.repositories import OperationsRepository
 from mltrade.risk.checks import CheckStatus, RiskCheck, RiskReport
 
-pytestmark = pytest.mark.contract
+pytestmark = [
+    pytest.mark.contract,
+    pytest.mark.skipif(
+        not os.environ.get("MLTRADE_TEST_DATABASE_URL"),
+        reason="requires MLTRADE_TEST_DATABASE_URL and a running Postgres",
+    ),
+]
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -71,9 +77,11 @@ def _make_preview() -> Preview:
 def pg_session():  # type: ignore[return]
     database_url = os.environ["MLTRADE_TEST_DATABASE_URL"]
     engine = build_engine(database_url)
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     with session_scope(engine) as session:
         yield session
+    Base.metadata.drop_all(engine)
     engine.dispose()
 
 
