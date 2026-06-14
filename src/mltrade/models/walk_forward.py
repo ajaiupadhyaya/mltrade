@@ -305,8 +305,9 @@ def _standardize_cross_sectionally(
         group = matrix[start:end, :]  # shape (n_symbols, n_features)
         mean = group.mean(axis=0)  # shape (n_features,)
         std = group.std(axis=0, ddof=1)  # sample std, shape (n_features,)
-        # Guard: std==0 → leave as 0.0 (avoids NaN from 0/0)
-        safe_std = np.where(std == 0.0, 1.0, std)
+        # Guard: std==0 (constant feature) or NaN (single-row ddof=1) → use
+        # 1.0 so the result is (x - mean) = 0.0 rather than NaN/0-division.
+        safe_std = np.where((std == 0.0) | np.isnan(std), 1.0, std)
         result[start:end, :] = (group - mean) / safe_std
         # Where std was 0, the result is (x - mean) / 1.0 which would be
         # a non-zero value if any x != mean; but if std==0 then ALL x==mean
@@ -486,8 +487,8 @@ def generate_forecast_batch(
     ]
     if not pred_rows:
         raise ForecastBlocked(
-            f"non-finite: no non-missing rows found at decision_session "
-            f"{decision_session} — cannot build prediction cross-section"
+            f"no prediction cross-section: no non-missing rows found at "
+            f"decision_session {decision_session}"
         )
     # Sort for determinism: (decision_session, symbol)
     pred_rows.sort(key=lambda r: (r.decision_session, r.symbol))
