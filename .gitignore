@@ -12,8 +12,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
-data/raw/
-data/normalized/
-data/features/
+data/
 artifacts/
 mlruns/
+*.db
