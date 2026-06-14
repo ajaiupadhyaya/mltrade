@@ -33,6 +33,7 @@ from mltrade.features.pipeline import build_feature_rows
 from mltrade.models.forecasts import MODEL_VERSION, ForecastBatch
 from mltrade.models.walk_forward import generate_forecast_batch
 from mltrade.operations.database import build_engine, session_scope
+from mltrade.operations.models import Base
 from mltrade.operations.repositories import OperationsRepository
 from mltrade.portfolio.optimizer import build_target
 from mltrade.portfolio.targets import OptimizationResult, PortfolioLimits
@@ -140,6 +141,9 @@ def run_paper(
     correlation_id = f"paper-{manifest.snapshot_id}"
 
     engine: Engine = build_engine(settings.database_url)
+    # Ensure the DB schema exists before any persistence step.
+    # create_all is idempotent: a no-op when tables already exist.
+    Base.metadata.create_all(engine)
 
     # -----------------------------------------------------------------------
     # Step 1: Load and verify bars from the manifest

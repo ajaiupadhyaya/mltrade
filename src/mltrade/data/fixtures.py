@@ -78,6 +78,44 @@ def _stable_symbol_seed(base_seed: int, symbol: str) -> int:
     return (base_seed * 6364136223846793005 + h) & 0xFFFF_FFFF_FFFF_FFFF
 
 
+def _symbol_trend_per_bar(sym_seed: int) -> float:
+    """Derive a deterministic per-symbol daily log-return trend from the seed.
+
+    Maps the stable per-symbol seed to an annualised drift in the range
+    [+20%, +50%] and converts to a per-bar log-return.  The mapping is a
+    simple modulo rescaling of the low-order bits of ``sym_seed``, which are
+    uniformly distributed across symbols (SHA-256 output).
+
+    This introduces genuine cross-sectional momentum dispersion so that the
+    ridge model has learnable signal and the final forecast cross-section
+    contains at least one positive predicted return → at least one portfolio
+    weight → at least one execution intent.
+
+    Why [+20%, +50%]?
+    -----------------
+    The synthetic bar generator includes a slow stress component
+    ``-0.005 * sin(2π*i/1260)`` that averages roughly -0.094% per bar
+    (-23.5%/year) over the first ~1700 training sessions.  Setting the
+    minimum annualised drift at +20% keeps overall expected 21-day forward
+    returns slightly negative for the weakest symbols (providing relative
+    dispersion) while the average drift (+35%/year) makes the overall mean
+    training label positive.  This gives the Ridge regression a positive
+    intercept and enough cross-sectional spread that some symbols receive
+    positive predicted returns at the decision session.
+
+    Annualised range: +20% to +50% (250 trading days).
+    Per-bar range: roughly +0.000800 to +0.002000.
+    """
+    # Use the lowest 16 bits of sym_seed for the rescaling.  These bits are
+    # well-distributed by SHA-256 and independent of base_seed mixing, so
+    # the dispersion is purely symbol-driven and cross-process stable.
+    bucket = sym_seed & 0xFFFF  # 0 .. 65535
+    # Map to annualised drift in [+0.20, +0.50]
+    annual_drift = 0.20 + (bucket / 65535.0) * 0.30
+    # Convert annualised log-return to per-bar log-return (250 trading days)
+    return annual_drift / 250.0
+
+
 def _generate_symbol_bars(
     instrument: InstrumentId,
     sessions: list[date],
@@ -92,8 +130,11 @@ def _generate_symbol_bars(
     initial_price = _INITIAL_PRICES.get(symbol, _DEFAULT_INITIAL_PRICE)
     liquidity_scale = _LIQUIDITY_SCALES.get(symbol, _DEFAULT_LIQUIDITY_SCALE)
 
-    # Trend: slow upward drift (0.8% annualised per bar ≈ 0.0032% daily)
-    trend_per_bar: float = 0.000032
+    # Trend: deterministic per-symbol annual drift derived from the stable
+    # per-symbol seed, giving cross-sectional momentum dispersion.  Ranges
+    # from roughly -5% to +20% annualised; fully deterministic and
+    # cross-process stable (seed-derived, SHA-256 based).
+    trend_per_bar: float = _symbol_trend_per_bar(sym_seed)
 
     n = len(sessions)
     bars: list[DailyBar] = []

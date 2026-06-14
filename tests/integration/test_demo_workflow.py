@@ -35,11 +35,19 @@ _CLOCK = datetime(2026, 6, 13, 22, 0, tzinfo=UTC)
 
 def _settings(tmp_path: Path) -> Settings:
     db_path = tmp_path / "ops.db"
+    # maximum_order_weight=0.25 matches the position-weight cap so a single
+    # order can build a full position in one shot.  maximum_rebalance_weight=1.0
+    # allows a complete initial portfolio build (all-cash → fully invested) to
+    # pass the total-rebalance-notional gate.  Both are permissible in the demo
+    # environment where we start from an empty portfolio and want to exercise
+    # the full paper-order preview path (§9.6).
     return Settings(
         environment="local",
         data_root=tmp_path / "data",
         database_url=f"sqlite+pysqlite:///{db_path}",
         reference_equity="1000000",
+        maximum_order_weight="0.25",
+        maximum_rebalance_weight="1.0",
     )
 
 
@@ -89,6 +97,19 @@ def test_demo_runs_end_to_end_without_network(tmp_path: Path) -> None:
         f"Risk report blocked — failing checks: {blocked_codes}"
     )
 
+    # §9.6: The demo must produce at least one real paper-order preview intent.
+    # An all-cash result fails this criterion — the fixture must have enough
+    # cross-sectional momentum dispersion to yield ≥1 positive forecast.
+    fc_summary = [
+        (fc.symbol, round(fc.predicted_forward_return, 6))
+        for fc in result.forecast_batch.forecasts
+    ]
+    assert result.preview.intents, (
+        f"Expected ≥1 execution intent but got none. "
+        f"Target weights: {dict(result.target.weights)}, "
+        f"Forecasts: {fc_summary}"
+    )
+
     # Forecast batch must contain forecasts for all universe symbols
     assert len(result.forecast_batch.forecasts) > 0, "No forecasts generated"
 
@@ -115,9 +136,12 @@ def test_replaying_demo_reuses_execution_intents(tmp_path: Path) -> None:
     # Target weights must match (determinism)
     assert result1.target == result2.target, "Target weights differ between runs"
 
-    # Intent IDs must match (empty is OK — means all-cash, but must be equal)
+    # §9.7: Intent IDs must be identical across two runs (determinism).
+    # The intents must also be non-empty — the fixture's cross-sectional
+    # dispersion guarantees ≥1 positive forecast regardless of run order.
     ids1 = tuple(sorted(i.client_order_id for i in result1.preview.intents))
     ids2 = tuple(sorted(i.client_order_id for i in result2.preview.intents))
+    assert ids1, "run1 produced no execution intents (all-cash)"
     assert ids1 == ids2, (
         f"Intent IDs differ between runs:\n  run1: {ids1}\n  run2: {ids2}"
     )
@@ -140,7 +164,9 @@ def test_demo_persists_evidence_to_db(tmp_path: Path) -> None:
     run_demo(settings, clock=_CLOCK)
 
     with engine.connect() as conn:
-        # These tables must always have rows after a successful run
+        # These tables must always have rows after a successful run.
+        # execution_intents is required because the demo must produce ≥1 intent
+        # (§9.6 paper-order preview) and each intent is persisted idempotently.
         required_tables = [
             "dataset_snapshots",
             "quality_reports",
@@ -149,6 +175,7 @@ def test_demo_persists_evidence_to_db(tmp_path: Path) -> None:
             "portfolio_targets",
             "risk_report_rows",
             "execution_previews",
+            "execution_intents",
         ]
         for table in required_tables:
             row = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
