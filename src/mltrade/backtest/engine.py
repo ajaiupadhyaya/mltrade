@@ -268,9 +268,12 @@ def _run_sim(
         # decisions[i] maps to backtest_sessions_data[i] (1:1).
         if i in decision_map:
             target_weights = decision_map[i]
-            # Size positions using equity marked to THIS session's open prices
+            # Size positions using equity marked to THIS session's open prices.
+            # Held symbols must have an open price (snapshots are complete and
+            # quality-gated); a missing price fails closed via KeyError rather
+            # than silently mis-sizing.
             current_equity_for_sizing = state.cash + sum(
-                Decimal(shares) * sess.open_prices.get(sym, Decimal("1"))
+                Decimal(shares) * sess.open_prices[sym]
                 for sym, shares in state.holdings.items()
             )
 
@@ -333,9 +336,9 @@ def _run_equal_weight_sim(
         weight = Decimal("0.95") / Decimal(n_syms)
         target_weights = {sym: weight for sym in all_symbols}
 
-        # Mark portfolio at open for sizing
+        # Mark portfolio at open for sizing (fail closed on a missing price).
         current_equity_for_sizing = state.cash + sum(
-            Decimal(shares) * sess.open_prices.get(sym, Decimal("1"))
+            Decimal(shares) * sess.open_prices[sym]
             for sym, shares in state.holdings.items()
         )
 
