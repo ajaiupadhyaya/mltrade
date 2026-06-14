@@ -4,9 +4,10 @@ Public API
 ----------
 Protocol / exceptions
 ~~~~~~~~~~~~~~~~~~~~~
-- ``Broker``        — structural Protocol for broker adapters
-- ``BrokerError``   — base exception
-- ``BrokerTimeout`` — raised on timeout (before or after submission)
+- ``Broker``            — structural Protocol for broker adapters
+- ``BrokerError``       — base exception
+- ``BrokerTimeout``     — raised on timeout (before or after submission)
+- ``BrokerSafetyError`` — raised when a safety invariant is violated
 
 Value objects
 ~~~~~~~~~~~~~
@@ -52,6 +53,7 @@ from mltrade.execution.broker import (
     BrokerFill,
     BrokerOrder,
     BrokerPosition,
+    BrokerSafetyError,
     BrokerTimeout,
     OrderSide,
     OrderStatus,
@@ -78,6 +80,7 @@ __all__ = [
     "BrokerFill",
     "BrokerOrder",
     "BrokerPosition",
+    "BrokerSafetyError",
     "BrokerTimeout",
     "ExecutionIntent",
     "ExecutionService",

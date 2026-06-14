@@ -129,6 +129,10 @@ class BrokerTimeout(BrokerError):
     """
 
 
+class BrokerSafetyError(BrokerError):
+    """Raised when a safety invariant is violated (e.g. live URL used for paper)."""
+
+
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------

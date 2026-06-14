@@ -46,6 +46,7 @@ addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 markers = [
   "contract: requires an external service such as PostgreSQL",
+  "alpaca: requires explicit Alpaca paper credentials and network access",
 ]
 
 [tool.ruff]

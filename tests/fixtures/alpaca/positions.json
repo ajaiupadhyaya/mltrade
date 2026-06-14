@@ -1,0 +1,11 @@
+[
+  {
+    "symbol": "SPY",
+    "qty": "100",
+    "avg_entry_price": "535.20",
+    "current_price": "539.10",
+    "market_value": "53910.00",
+    "unrealized_pl": "390.00",
+    "side": "long"
+  }
+]

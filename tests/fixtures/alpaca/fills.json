@@ -1,0 +1,13 @@
+[
+  {
+    "id": "fill-uuid-001",
+    "order_id": "order-uuid-001",
+    "client_order_id": "mlt-20260612-0123456789abcdef01234567",
+    "symbol": "SPY",
+    "qty": "10",
+    "price": "539.10",
+    "side": "buy",
+    "transaction_time": "2026-06-12T14:30:05Z",
+    "type": "fill"
+  }
+]

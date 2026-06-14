@@ -1,0 +1,16 @@
+[
+  {
+    "id": "order-uuid-001",
+    "client_order_id": "mlt-20260612-0123456789abcdef01234567",
+    "symbol": "SPY",
+    "qty": "10",
+    "filled_qty": "0",
+    "side": "buy",
+    "type": "market",
+    "status": "pending_new",
+    "submitted_at": "2026-06-12T14:30:00Z",
+    "filled_at": null,
+    "filled_avg_price": null,
+    "time_in_force": "day"
+  }
+]

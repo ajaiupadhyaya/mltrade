@@ -1,0 +1,9 @@
+{
+  "id": "pa-account-paper-001",
+  "status": "ACTIVE",
+  "cash": "987654.32",
+  "equity": "1023456.78",
+  "account_blocked": false,
+  "trading_blocked": false,
+  "pattern_day_trader": false
+}
