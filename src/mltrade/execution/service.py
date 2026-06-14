@@ -178,6 +178,16 @@ class ExecutionService:
         decision_session: date,
         environment: str,
         prices: Mapping[str, Decimal],
+        # Provenance parameters (wired in Task 14 orchestration workflows).
+        # Defaults preserve existing behaviour so all prior tests pass unchanged.
+        snapshot_blocked: bool = False,
+        snapshot_last_session: date | None = None,
+        expected_last_session: date | None = None,
+        expected_decision_session: date | None = None,
+        model_version: str = "ridge-trend-v1",
+        feature_version: str = "trend-momentum-v1",
+        expected_model_version: str = "ridge-trend-v1",
+        expected_feature_version: str = "trend-momentum-v1",
     ) -> Preview:
         """Build a pre-submission preview without placing any orders.
 
@@ -208,7 +218,41 @@ class ExecutionService:
             Deployment environment string (e.g. ``"paper"``).
         prices:
             Symbol → current price, used for notional computation.
+        snapshot_blocked:
+            True when the upstream data pipeline marked the snapshot blocked.
+            Triggers BLOCK on ``snapshot_health`` risk check.
+        snapshot_last_session:
+            The latest XNYS session present in the bar snapshot.  Defaults to
+            ``decision_session`` when not supplied (self-matched, always-fresh).
+        expected_last_session:
+            The calendar session we expect the snapshot to cover.  Defaults to
+            ``decision_session`` when not supplied.
+        expected_decision_session:
+            The session we expect decisions to have been made for.  Defaults to
+            ``decision_session`` when not supplied.
+        model_version:
+            Actual model version string embedded in the forecast batch.
+        feature_version:
+            Actual feature version string.
+        expected_model_version:
+            Required model version (BLOCK when mismatch).
+        expected_feature_version:
+            Required feature version (BLOCK when mismatch).
         """
+        # Resolve provenance defaults (self-matched → always-fresh when omitted).
+        _snapshot_last_session: date = (
+            snapshot_last_session if snapshot_last_session is not None
+            else decision_session
+        )
+        _expected_last_session: date = (
+            expected_last_session if expected_last_session is not None
+            else decision_session
+        )
+        _expected_decision_session: date = (
+            expected_decision_session if expected_decision_session is not None
+            else decision_session
+        )
+
         # --- 1. Fetch broker state ---
         account = self._broker.get_account()
         broker_positions = self._broker.list_positions()
@@ -280,25 +324,18 @@ class ExecutionService:
             cash_weight = Decimal("0")
 
         context = PreTradeContext(
-            # Snapshot / session provenance.
-            # NOTE: the ExecutionService has no view of data-pipeline snapshot
-            # metadata, so these are self-matched (always-fresh) defaults. This
-            # means the snapshot_health / snapshot_freshness /
-            # decision_session_freshness / model_version / feature_version risk
-            # checks are effectively no-ops AT THIS LAYER. The orchestrating
-            # workflow (Task 14) MUST supply real provenance/version values so
-            # those gates actually fire; until then upstream data-quality
-            # (Task 4) + snapshot verification block stale/blocked data.
-            snapshot_blocked=False,
-            snapshot_last_session=decision_session,
-            expected_last_session=decision_session,
+            # Snapshot / session provenance — now wired from caller-supplied
+            # provenance parameters so the freshness/health gates actually fire.
+            snapshot_blocked=snapshot_blocked,
+            snapshot_last_session=_snapshot_last_session,
+            expected_last_session=_expected_last_session,
             decision_session=decision_session,
-            expected_decision_session=decision_session,
-            # Model / feature versioning (see NOTE above — wired in Task 14).
-            model_version=strategy_version,
-            expected_model_version=strategy_version,
-            feature_version=strategy_version,
-            expected_feature_version=strategy_version,
+            expected_decision_session=_expected_decision_session,
+            # Model / feature versioning
+            model_version=model_version,
+            expected_model_version=expected_model_version,
+            feature_version=feature_version,
+            expected_feature_version=expected_feature_version,
             # Portfolio weights
             weights=weights,
             cash_weight=cash_weight,
