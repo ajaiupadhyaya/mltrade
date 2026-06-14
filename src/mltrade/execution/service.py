@@ -280,13 +280,21 @@ class ExecutionService:
             cash_weight = Decimal("0")
 
         context = PreTradeContext(
-            # Snapshot / session provenance — treat everything as fresh
+            # Snapshot / session provenance.
+            # NOTE: the ExecutionService has no view of data-pipeline snapshot
+            # metadata, so these are self-matched (always-fresh) defaults. This
+            # means the snapshot_health / snapshot_freshness /
+            # decision_session_freshness / model_version / feature_version risk
+            # checks are effectively no-ops AT THIS LAYER. The orchestrating
+            # workflow (Task 14) MUST supply real provenance/version values so
+            # those gates actually fire; until then upstream data-quality
+            # (Task 4) + snapshot verification block stale/blocked data.
             snapshot_blocked=False,
             snapshot_last_session=decision_session,
             expected_last_session=decision_session,
             decision_session=decision_session,
             expected_decision_session=decision_session,
-            # Model / feature versioning
+            # Model / feature versioning (see NOTE above — wired in Task 14).
             model_version=strategy_version,
             expected_model_version=strategy_version,
             feature_version=strategy_version,
@@ -455,4 +463,5 @@ def _order_status_to_outcome(status: OrderStatus) -> str:
         return "submitted"
     if status is OrderStatus.REJECTED:
         return "rejected"
-    return "submitted"  # fallback for any future statuses
+    # Fail closed: never count an unrecognized status as a live order.
+    raise ValueError(f"unexpected broker order status: {status!r}")

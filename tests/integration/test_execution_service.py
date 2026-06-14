@@ -245,6 +245,35 @@ def test_reconciliation_mismatch_blocks_preview() -> None:
     assert preview.blocked is True
 
 
+def test_open_order_mismatch_blocks_and_refuses_submit() -> None:
+    """An internal open order the broker doesn't know about blocks submission."""
+    broker = SimulatedBroker(_account(), default_outcome=SubmitOutcome.COMPLETE_FILL)
+    svc = ExecutionService(broker)
+
+    stale_internal = InternalState(
+        cash=Decimal("100000"),
+        positions={},
+        open_client_order_ids=("mlt-20260612-deadbeefdeadbeefdeadbeef",),
+    )
+    preview = svc.preview(
+        target_positions={"SPY": 10},
+        internal_state=stale_internal,
+        settings=_settings(),
+        strategy_version=_STRAT,
+        decision_session=_SESSION,
+        environment=_ENV,
+        prices=_prices(SPY=200),
+    )
+
+    assert preview.reconciliation.blocked is True
+    assert any(d.kind == "open_order" for d in preview.reconciliation.differences)
+    assert preview.blocked is True
+
+    result = svc.submit(preview)
+    assert result.submitted == 0
+    assert len(broker.list_orders()) == 0
+
+
 def test_idempotent_resubmit() -> None:
     """Submitting the same preview twice → same result, no duplicates at broker."""
     broker = SimulatedBroker(_account(), default_outcome=SubmitOutcome.COMPLETE_FILL)
