@@ -22,6 +22,7 @@ class Environment(StrEnum):
 class Settings(BaseSettings):
     environment: Environment = Environment.LOCAL
     data_root: Path = Path("data")
+    experiment_root: Path | None = None
     database_url: str = Field(
         default="sqlite+pysqlite:///data/operations.db",
         repr=False,
@@ -82,4 +83,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "maximum_position_weight cannot exceed 1 - minimum_cash_weight"
             )
+        if self.experiment_root is None:
+            self.experiment_root = self.data_root / "experiments"
+        else:
+            self.experiment_root = self.experiment_root.expanduser().resolve()
         return self
+
+    @property
+    def mlflow_tracking_root(self) -> Path:
+        assert self.experiment_root is not None
+        return self.experiment_root / "mlflow"
+
+    @property
+    def optuna_storage_path(self) -> Path:
+        assert self.experiment_root is not None
+        return self.experiment_root / "optuna" / "studies.db"

@@ -19,6 +19,7 @@ def isolate_mltrade_environment(
     for name in (
         "MLTRADE_ENVIRONMENT",
         "MLTRADE_DATA_ROOT",
+        "MLTRADE_EXPERIMENT_ROOT",
         "MLTRADE_DATABASE_URL",
         "MLTRADE_ALPACA_API_KEY",
         "MLTRADE_ALPACA_API_SECRET",

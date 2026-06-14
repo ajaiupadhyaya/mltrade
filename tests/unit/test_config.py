@@ -17,6 +17,21 @@ def test_settings_use_safe_local_defaults(tmp_path: Path) -> None:
     assert settings.database_url == "sqlite+pysqlite:///data/operations.db"
 
 
+def test_experiment_paths_default_under_data_root(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path)
+    assert settings.experiment_root == tmp_path / "experiments"
+    assert settings.mlflow_tracking_root == tmp_path / "experiments" / "mlflow"
+    assert (
+        settings.optuna_storage_path
+        == tmp_path / "experiments" / "optuna" / "studies.db"
+    )
+
+
+def test_explicit_experiment_root_is_absolute(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path, experiment_root=tmp_path / "research")
+    assert settings.experiment_root == (tmp_path / "research").resolve()
+
+
 def test_settings_tests_ignore_local_dotenv(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

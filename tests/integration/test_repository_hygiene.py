@@ -13,5 +13,5 @@ from pathlib import Path
 def test_runtime_artifacts_are_gitignored() -> None:
     """All runtime artefact directories and patterns are in .gitignore."""
     ignored = Path(".gitignore").read_text(encoding="utf-8")
-    for entry in ("data/", "artifacts/", "mlruns/", "*.db"):
+    for entry in ("data/", "artifacts/", "mlruns/", "*.db", ".claude/"):
         assert entry in ignored, f"Expected {entry!r} in .gitignore"
