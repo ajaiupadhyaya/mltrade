@@ -24,34 +24,23 @@ each task TDD'd and passed through an adversarial spec+quality review.
 - Repo hygiene — no datasets, `*.db`, secrets, or broker responses tracked
   (previously-committed `data/operations.db` + fixture parquet were un-tracked)
 
-## ⚠️ Remaining: TWO steps need a machine with Docker (this dev box has none)
+## Docker acceptance steps — NOW PASSED (2026-06-14, Docker Desktop on this box)
 
-The Docker daemon is unavailable here, so these acceptance steps are written
-and correct but UNRUN — run them on a Docker-capable host (e.g. the M4):
+1. **PostgreSQL contract tests** (design §9.9): `docker compose up -d --wait
+   postgres` then `MLTRADE_TEST_DATABASE_URL=postgresql+psycopg://mltrade:mltrade@localhost:5432/mltrade
+   uv run pytest tests/contract -m "contract and not alpaca"` → **3 passed**.
+2. **Container build + in-image demo** (design §9.10): `docker build -t
+   mltrade:mvp .` then `docker run --rm mltrade:mvp` (CMD `demo run`) → **exit 0**,
+   prints the five acceptance lines + 10 intents. Non-root `uv run` hardening
+   confirmed working.
 
-1. **PostgreSQL contract tests** (design §9.9):
-   ```bash
-   docker compose up -d --wait postgres
-   MLTRADE_TEST_DATABASE_URL=postgresql+psycopg://mltrade:mltrade@localhost:5432/mltrade \
-     UV_CACHE_DIR=/private/tmp/mltrade-uv-cache \
-     uv run pytest tests/contract -m "contract and not alpaca" -v
-   ```
-2. **Container build + offline demo in the image** (design §9.10):
-   ```bash
-   docker build -t mltrade:mvp .
-   docker run --rm mltrade:mvp            # CMD is `demo run`
-   ```
-   The Dockerfile was hardened for non-root `uv run` (writable venv/cache/data,
-   `UV_FROZEN`/`UV_NO_SYNC`/`UV_CACHE_DIR`), but only code-reasoned, never built
-   here. If `uv run` complains in-container, the most likely tweak is perms on
-   `/app` or the uv cache dir — already addressed but verify.
-
-Optional: live Alpaca paper contract (needs real paper creds + network):
+Optional/UNRUN: live Alpaca paper contract (needs real paper creds + network):
 `MLTRADE_RUN_ALPACA_CONTRACTS=true ... uv run pytest tests/contract -m alpaca`.
 
 ## Acceptance criteria (design §9) status
-1–8, 11–15 ✅ verified locally. 9 (Postgres) and 10 (container) ⏳ pending the
-Docker run above. 13 (optional Alpaca contract) ⏳ optional, needs creds.
+**1–12, 14, 15 ✅ all verified** (incl. §9.9 Postgres + §9.10 container).
+§9.13 (optional live Alpaca contract) is the only unrun item — needs real paper
+credentials. The MVP meets its acceptance bar.
 
 ## Known design notes / deferred (intentional)
 - **Cold-start rebalance allowance:** going all-cash → ~95% invested in one
