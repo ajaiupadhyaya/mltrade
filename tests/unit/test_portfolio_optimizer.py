@@ -469,7 +469,8 @@ def test_tight_vol_constraint_produces_valid_result() -> None:
     )
     # Either valid (small weights) or blocked -- must not raise.
     assert isinstance(result.blocked, bool)
-    assert result.cash_weight >= Decimal("0")
+    if not result.blocked:
+        assert result.cash_weight >= tight_limits.minimum_cash_weight
 
 
 # ---------------------------------------------------------------------------
