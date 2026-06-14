@@ -1,90 +1,87 @@
 # MLTrade Paper-Trading MVP — Progress & Handoff
 
-_Last updated: 2026-06-13. Branch: `codex/paper-trading-mvp` (in worktree
+_Last updated: 2026-06-14. Branch: `codex/paper-trading-mvp` (worktree
 `.worktrees/paper-trading-mvp`). Not yet merged to `main`._
 
-## Where things stand
+## Status: ALL 18 TASKS IMPLEMENTED + REVIEWED
 
-The MVP is being built by executing the approved 18-task plan
-(`docs/superpowers/plans/2026-06-13-end-to-end-paper-trading-mvp.md`) against the
-design (`docs/superpowers/specs/2026-06-13-end-to-end-paper-trading-mvp-design.md`)
-using TDD + per-task adversarial review.
+The full vertical slice from the approved plan
+(`docs/superpowers/plans/2026-06-13-end-to-end-paper-trading-mvp.md`) is built,
+each task TDD'd and passed through an adversarial spec+quality review.
 
-**State at this checkpoint:** clean working tree, everything committed.
-At HEAD `6aece24`: `ruff` clean, strict `mypy` clean, **284 unit+integration
-tests passing**. This is a safe stopping point.
+**Local acceptance (verified on this dev box — NOT the M4/Docker host):**
+- `ruff check .` — clean
+- `mypy src` (strict) — clean, 50 source files
+- `pytest tests/unit tests/integration` — **430 passed**, branch coverage
+  **92.77%** (gate ≥90%)
+- Contract tests (Postgres + Alpaca) — **skip cleanly** without their env vars
+- `mltrade demo run` — exits 0, prints the five acceptance lines, **10 order
+  intents**; running it twice reuses the snapshot + identical intent
+  client_order_ids (replay/idempotency proven)
+- Safety-failure suite (leakage / optimizer / risk / reconciliation /
+  execution / paper) — 129 passed; stale snapshot, optimizer failure, and
+  reconciliation mismatch each block submission
+- Repo hygiene — no datasets, `*.db`, secrets, or broker responses tracked
+  (previously-committed `data/operations.db` + fixture parquet were un-tracked)
 
-### Tasks 1–8: DONE and review-approved
-| Task | What | Key commits |
-|------|------|-------------|
-| 1 | MVP deps + safe settings | `1b02fc3`, `67f3056` |
-| 2 | ETF universe + canonical `DailyBar` | `e135ee1`, `c843c77`, `ce20d0f` |
-| 3 | Deterministic offline market data (`data/fixtures.py`) | `a562464`, `ecda367` (fixed a CRITICAL cross-process determinism bug: was using salted builtin `hash()`) |
-| 4 | Fail-closed data quality (`data/quality.py`) | `6a79f33`, `e25812e` |
-| 5 | Immutable Parquet snapshot publication (`data/publication.py`) | `4df6133`, `5768d12` |
-| 6 | Point-in-time features + labels (`features/`) | `0c5b231` (leakage-safe; verified) |
-| 7 | Embargoed walk-forward ridge forecasts (`models/`) | `08cf9e6`, `5dd1514` |
-| 8 | Constrained CVXPY portfolio optimizer (`portfolio/`) | `09fcae6`, `116979b` |
+## ⚠️ Remaining: TWO steps need a machine with Docker (this dev box has none)
 
-### Task 9: IMPLEMENTED, committed, self-verified — review NOT yet completed
-- `risk/checks.py`, `risk/policy.py`, `tests/unit/test_risk_policy.py` (commit `6aece24`).
-- 17 pre-trade checks, `evaluate_pre_trade(context) -> RiskReport`, fail-closed.
-- 66 new tests pass; ruff + mypy clean.
-- **RESUME HERE:** the adversarial spec+quality review of Task 9 was interrupted
-  before completion. Re-run a review of `git diff 116979b..6aece24` focused on:
-  (1) every check is *always* emitted exactly once (no skip path → `by_code`
-  can't raise); (2) `evaluate_pre_trade` cannot RAISE on non-finite Decimal
-  inputs (NaN comparisons raise `InvalidOperation` → would be fail-OPEN; the
-  impl claims early finiteness guards — verify); (3) no inverted threshold
-  comparisons; (4) `valid_context` genuinely passes vs. dodges a check.
+The Docker daemon is unavailable here, so these acceptance steps are written
+and correct but UNRUN — run them on a Docker-capable host (e.g. the M4):
 
-## Remaining work (Tasks 10–18)
+1. **PostgreSQL contract tests** (design §9.9):
+   ```bash
+   docker compose up -d --wait postgres
+   MLTRADE_TEST_DATABASE_URL=postgresql+psycopg://mltrade:mltrade@localhost:5432/mltrade \
+     UV_CACHE_DIR=/private/tmp/mltrade-uv-cache \
+     uv run pytest tests/contract -m "contract and not alpaca" -v
+   ```
+2. **Container build + offline demo in the image** (design §9.10):
+   ```bash
+   docker build -t mltrade:mvp .
+   docker run --rm mltrade:mvp            # CMD is `demo run`
+   ```
+   The Dockerfile was hardened for non-root `uv run` (writable venv/cache/data,
+   `UV_FROZEN`/`UV_NO_SYNC`/`UV_CACHE_DIR`), but only code-reasoned, never built
+   here. If `uv run` complains in-container, the most likely tweak is perms on
+   `/app` or the uv cache dir — already addressed but verify.
 
-Each is a full TDD task in the plan (read the plan section for exact spec/tests):
+Optional: live Alpaca paper contract (needs real paper creds + network):
+`MLTRADE_RUN_ALPACA_CONTRACTS=true ... uv run pytest tests/contract -m alpaca`.
 
-- **Task 10** — Shared walk-forward backtester (`backtest/accounting.py`,
-  `engine.py`, `reporting.py`). Deterministic next-session loop, cost
-  sensitivity at 2/5/10 bps, full metrics + equal-weight/cash baselines.
-- **Task 11** — Broker contracts + simulated execution (`execution/broker.py`,
-  `simulated.py`, `intents.py`). Stable `client_order_id` (sha256), dedup,
-  fill/partial/reject/timeout outcomes.
-- **Task 12** — Reconciliation + safe submission (`execution/reconciliation.py`,
-  `service.py`). Preview/submit, fail-closed on diffs, idempotent timeout
-  handling (never blind resubmit).
-- **Task 13** — Persist operational evidence (`operations/models.py` +
-  `repositories.py`). SQL tables, UUID PKs, unique `client_order_id`; SQLite +
-  Postgres contract tests.
-- **Task 14** — Offline/research/paper workflows (`workflows/demo.py`,
-  `research.py`, `paper.py`). `run_demo` end-to-end offline + replay idempotency.
-- **Task 15** — MVP operator CLI (extend `cli.py`): `demo run`, `data
-  ingest/validate`, `research backtest`, `portfolio build`, `paper
-  preview/submit --submit/reconcile`, `status`, `doctor`. Dependency injection
-  for settings/clock/source/db/broker.
-- **Task 16** — Alpaca data + paper adapters (`data/alpaca.py`,
-  `execution/alpaca.py`). HTTPX, sanitized response contracts (respx), opt-in
-  live contract gated by `MLTRADE_RUN_ALPACA_CONTRACTS=true`.
-- **Task 17** — Document + containerize (`README`, `docs/runbooks/`,
-  `Dockerfile` `CMD ["demo","run"]`, hygiene test, gitignore runtime artifacts).
-- **Task 18** — Final acceptance: ruff/mypy/coverage ≥90, run `demo run` twice
-  (replay reuses identities), Postgres contracts, container build/run, safety
-  failure tests, repo hygiene, evidence report.
+## Acceptance criteria (design §9) status
+1–8, 11–15 ✅ verified locally. 9 (Postgres) and 10 (container) ⏳ pending the
+Docker run above. 13 (optional Alpaca contract) ⏳ optional, needs creds.
 
-"Complete" = the 15 acceptance criteria in §9 of the design doc.
+## Known design notes / deferred (intentional)
+- **Cold-start rebalance allowance:** going all-cash → ~95% invested in one
+  rebalance exceeds the steady-state `maximum_rebalance_weight=0.50` cap, so the
+  `demo run` / `paper preview` CLI commands relax it (rebalance≤1.0, order≤0.25)
+  via `settings.model_copy` for the initial deployment. Steady-state `run_paper`
+  keeps the strict 0.50/0.10 caps. This is documented in code + runbook.
+- **Execution-service risk provenance:** `ExecutionService.preview` takes
+  snapshot/version provenance params (default self-matched); the workflows pass
+  REAL values so the snapshot_freshness / version gates fire (stale snapshot
+  blocks — tested). Direct `preview()` callers that omit them get the lenient
+  defaults.
+- **Live Alpaca path not wired into a live workflow.** Adapters exist + are
+  contract-tested with recorded responses; `run_paper` is fail-closed and
+  paper-only. The reconcile/preview double-fetch of broker state (a TOCTOU note
+  for the live adapter) is acceptable for the sim path; revisit before live use.
+- Deferred per design §10: individual stocks, SEC/FRED, shorting, mean-reversion
+  sleeve, MLflow/Optuna, scheduling, dashboards, live-money execution.
 
-## How to resume
-
+## How to resume / ship
 ```bash
 cd "/Users/ajaiupadhyaya/Documents/machine learning/.worktrees/paper-trading-mvp"
-# sanity check the checkpoint
-UV_CACHE_DIR=/private/tmp/mltrade-uv-cache uv run pytest tests/unit tests/integration -q
-# then finish reviewing Task 9, then continue at Task 10 in the plan
+UV_CACHE_DIR=/private/tmp/mltrade-uv-cache uv run pytest tests/unit tests/integration -q   # 430 pass
+UV_CACHE_DIR=/private/tmp/mltrade-uv-cache uv run mltrade demo run                          # exit 0, 10 intents
 ```
+Then on a Docker host run the two pending steps above. After that, the branch
+is ready to merge to `main` (see `superpowers:finishing-a-development-branch`).
 
-Conventions in force: Python 3.13, `uv` for everything, frozen Pydantic models
-with `model_copy`/`copy` overrides that reject updates on *persisted* artifacts
-(transient input contexts like `PreTradeContext` intentionally allow
-copy-with-update), strict mypy, ruff (E,F,I,B,UP,RUF), fail-closed everywhere,
-deterministic outputs, no secrets/runtime data in git. Verify with
-`UV_CACHE_DIR=/private/tmp/mltrade-uv-cache uv run <ruff|mypy|pytest>`.
-
-Live trading is structurally disabled and must stay that way.
+Conventions: Python 3.13, `uv` for everything, frozen Pydantic with
+update-rejecting `model_copy` on persisted artifacts (transient input contexts
+allow copy-with-update), strict mypy, ruff (E,F,I,B,UP,RUF), fail-closed
+everywhere, deterministic outputs, no secrets/runtime data in git. Live trading
+is structurally disabled and must stay that way.
