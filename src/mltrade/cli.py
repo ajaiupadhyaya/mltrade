@@ -341,10 +341,18 @@ def portfolio_build() -> None:
 
 @paper_app.command("preview")
 def paper_preview() -> None:
-    """Run an offline execution preview (SimulatedBroker, no orders placed)."""
+    """Run an offline execution preview (SimulatedBroker, no orders placed).
+
+    Uses the cold-start initial-allocation allowance (maximum_rebalance_weight
+    1.0 / maximum_order_weight 0.25), so this previews the FIRST full deployment
+    from all-cash. Steady-state production (`run_paper`) enforces the stricter
+    default 0.50/0.10 caps; this preview is intentionally permissive for the
+    cold-start showcase.
+    """
     from mltrade.workflows.demo import run_demo
 
-    # Demo settings with cold-start allowance for preview
+    # Cold-start allowance (see docstring) — relaxes the steady-state caps so the
+    # initial all-cash -> ~95% deployment is not blocked by the rebalance gate.
     settings = _get_settings()
     demo_settings = settings.model_copy(
         update={
@@ -361,6 +369,10 @@ def paper_preview() -> None:
         raise typer.Exit(1) from exc
 
     preview = result.preview
+    typer.echo(
+        "note: cold-start allowance applied "
+        "(rebalance<=100%, order<=25%); steady-state caps are 50%/10%"
+    )
     typer.echo(f"snapshot:   {result.snapshot_id}")
     typer.echo(f"intents:    {len(preview.intents)}")
 

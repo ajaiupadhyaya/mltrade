@@ -21,6 +21,37 @@ from mltrade.cli import app
 runner = CliRunner()
 
 
+def test_data_validate_exits_nonzero_when_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """data validate must exit nonzero when the quality gate blocks."""
+    import mltrade.data.quality as quality_mod
+    from mltrade.data.quality import (
+        DataQualityReport,
+        IssueSeverity,
+        QualityIssue,
+    )
+
+    blocked = DataQualityReport(
+        issues=(
+            QualityIssue(
+                code="incomplete_latest_session",
+                severity=IssueSeverity.BLOCK,
+                message="injected block for CLI test",
+            ),
+        )
+    )
+
+    def _blocked(*_args: object, **_kwargs: object) -> DataQualityReport:
+        return blocked
+
+    monkeypatch.setattr(quality_mod, "validate_daily_bars", _blocked)
+    result = runner.invoke(app, ["data", "validate"])
+
+    assert result.exit_code != 0
+    assert "data quality: blocked" in result.stdout
+
+
 # ---------------------------------------------------------------------------
 # demo run
 # ---------------------------------------------------------------------------
