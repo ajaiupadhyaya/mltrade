@@ -11,13 +11,19 @@ Public API::
     )
 """
 
-from mltrade.models.forecasts import Forecast, ForecastBatch, ForecastBlocked
+from mltrade.models.forecasts import (
+    Forecast,
+    ForecastBatch,
+    ForecastBlocked,
+    RidgeForecastConfig,
+)
 from mltrade.models.walk_forward import build_training_split, generate_forecast_batch
 
 __all__ = [
     "Forecast",
     "ForecastBatch",
     "ForecastBlocked",
+    "RidgeForecastConfig",
     "build_training_split",
     "generate_forecast_batch",
 ]

@@ -69,8 +69,9 @@ the current date's cross-section, so there is no leakage.
 
 Minimum training history
 ------------------------
-At least **504 distinct decision-session dates** must exist among the usable
-training rows.  504 ≈ 2 XNYS trading years.  Fewer than 504 raises
+By default, at least **504 distinct decision-session dates** must exist among
+the usable training rows.  504 ≈ 2 XNYS trading years.  The threshold is
+configurable for research experiments.  Fewer than the configured minimum raises
 ``ForecastBlocked("insufficient training history: ...")``.
 
 Non-finite guard
@@ -84,8 +85,9 @@ correctness.)
 
 Determinism
 -----------
-``Ridge(alpha=1.0)`` with ``sklearn`` is fully deterministic given the same
-input matrix — no random state is involved.  Cross-sectional standardisation
+``Ridge`` with ``sklearn`` is fully deterministic for the supported
+configuration given the same input matrix — no random state is involved.
+Cross-sectional standardisation
 uses numpy sample statistics (ddof=1 for std), which are also deterministic.
 The feature matrix is constructed in sorted ``(decision_session, symbol)``
 order (the canonical output order of ``build_feature_rows``), which is also
@@ -110,6 +112,7 @@ from mltrade.models.forecasts import (
     Forecast,
     ForecastBatch,
     ForecastBlocked,
+    RidgeForecastConfig,
 )
 
 # ---------------------------------------------------------------------------
@@ -386,13 +389,14 @@ def generate_forecast_batch(
     feature_rows: tuple[FeatureRow, ...],
     decision_session: date,
     *,
-    embargo_sessions: int = _DEFAULT_EMBARGO_SESSIONS,
+    config: RidgeForecastConfig | None = None,
+    embargo_sessions: int | None = None,
 ) -> ForecastBatch:
     """Fit a Ridge regression and predict forward returns for one decision date.
 
     Full pipeline:
       1. Build the embargoed training split via ``build_training_split``.
-      2. Verify at least 504 distinct training decision-sessions exist;
+      2. Verify the configured minimum training decision-sessions exist;
          raise ``ForecastBlocked("insufficient training history: ...")`` if not.
       3. Check all 6 raw feature values in training rows are finite;
          raise ``ForecastBlocked("non-finite: ...")`` if any are not.
@@ -404,7 +408,7 @@ def generate_forecast_batch(
          decision-date group).
       7. Standardise prediction cross-section cross-sectionally (z-score within
          the single decision-date group).
-      8. Fit ``Ridge(alpha=1.0)`` on (standardised training features,
+      8. Fit the configured ``Ridge`` on (standardised training features,
          training labels).
       9. Predict on the standardised prediction cross-section.
       10. Verify all predictions are finite; raise ``ForecastBlocked`` if not.
@@ -419,7 +423,12 @@ def generate_forecast_batch(
     decision_session:
         The rebalance date.
     embargo_sessions:
-        Number of XNYS sessions to embargo.  Defaults to 21.
+        Backward-compatible override for the number of XNYS sessions to
+        embargo.  It must match ``config.embargo_sessions`` when both are
+        provided.
+    config:
+        Ridge and walk-forward boundaries.  Defaults preserve the original
+        alpha, intercept, minimum-history, and embargo behavior.
 
     Returns
     -------
@@ -431,16 +440,29 @@ def generate_forecast_batch(
     ------
     ForecastBlocked
         - ``"non-finite: ..."`` — a feature value or model output is not finite.
-        - ``"insufficient training history: ..."`` — fewer than 504 distinct
-          training sessions after embargo filtering.
+        - ``"insufficient training history: ..."`` — fewer than the configured
+          number of distinct training sessions after embargo filtering.
     """
+    if config is None:
+        if embargo_sessions is None:
+            config = RidgeForecastConfig()
+        else:
+            config = RidgeForecastConfig(embargo_sessions=embargo_sessions)
+    elif (
+        embargo_sessions is not None
+        and embargo_sessions != config.embargo_sessions
+    ):
+        raise ValueError(
+            "embargo_sessions conflicts with config.embargo_sessions"
+        )
+
     # ------------------------------------------------------------------
     # Step 1: build embargoed training split
     # ------------------------------------------------------------------
     split = build_training_split(
         feature_rows,
         decision_session=decision_session,
-        embargo_sessions=embargo_sessions,
+        embargo_sessions=config.embargo_sessions,
     )
     training_rows = list(split.training)
     embargo_start = split.embargo_start
@@ -452,10 +474,11 @@ def generate_forecast_batch(
         row.decision_session for row in training_rows
     }
     n_training_sessions = len(distinct_training_sessions)
-    if n_training_sessions < _MIN_TRAINING_SESSIONS:
+    if n_training_sessions < config.minimum_training_sessions:
         raise ForecastBlocked(
             f"insufficient training history: only {n_training_sessions} distinct "
-            f"training sessions available (need >= {_MIN_TRAINING_SESSIONS})"
+            "training sessions available "
+            f"(need >= {config.minimum_training_sessions})"
         )
 
     # ------------------------------------------------------------------
@@ -540,7 +563,10 @@ def generate_forecast_batch(
     # ------------------------------------------------------------------
     # Step 8: fit Ridge regression
     # ------------------------------------------------------------------
-    model: Ridge = Ridge(alpha=1.0)
+    model: Ridge = Ridge(
+        alpha=config.alpha,
+        fit_intercept=config.fit_intercept,
+    )
     model.fit(X_train, y_train)
 
     # ------------------------------------------------------------------

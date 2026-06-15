@@ -7,12 +7,12 @@ Algorithm
 ---------
 1.  Build feature rows from all bars (``build_feature_rows``).
 2.  Group bars by session date, sort sessions ascending.
-3.  Apply a 504-session warmup: the first 504 sessions are training-only.
+3.  Apply the configured minimum-training-session warmup.
 4.  For each *decision session* after the warmup (where a "next session"
     exists for trade execution):
-    a.  Every 21 sessions (retrain checkpoint): call ``generate_forecast_batch``
-        to get a new ``ForecastBatch``.  If ``ForecastBlocked``, hold the
-        previous target weights (or stay flat).
+    a.  At the configured retrain cadence, call ``generate_forecast_batch`` to
+        get a new ``ForecastBatch``.  If ``ForecastBlocked``, hold the previous
+        target weights (or stay flat).
     b.  Extract forecasts (symbol → predicted_return) from the batch.
     c.  Extract trailing realized_volatility_21 per symbol from feature rows.
     d.  Call ``build_target`` → ``OptimizationResult`` (target weights).
@@ -22,8 +22,8 @@ Algorithm
     - Fills are executed at the next session's open.
 6.  Accounting:
     - Decisions are computed ONCE (ceteris-paribus).
-    - The accounting sim is run for cost levels {2, 5, 10} bps independently,
-      plus once for the requested cost_bps (headline metrics).
+    - The accounting sim is run for each configured sensitivity cost level,
+      plus once for the configured headline cost.
 7.  Mark positions to CLOSE at the end of each session.
 8.  Baselines:
     - equal_weight: rebalance to 1/N each session (same cost model as headline).
@@ -40,9 +40,20 @@ Determinism
 
 from __future__ import annotations
 
+import warnings
+from collections.abc import Mapping
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
-from typing import NamedTuple
+from typing import Annotated, Any, NamedTuple, Self, override
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PydanticDeprecatedSince20,
+    StrictInt,
+)
 
 from mltrade.backtest.accounting import (
     Fill,
@@ -50,10 +61,15 @@ from mltrade.backtest.accounting import (
     apply_fill,
     mark_to_market,
 )
-from mltrade.backtest.reporting import BacktestResult, CostSummary, compute_metrics
+from mltrade.backtest.reporting import (
+    BacktestResult,
+    CostSummary,
+    compute_evaluation_windows,
+    compute_metrics,
+)
 from mltrade.data.bars import DailyBar
 from mltrade.features.pipeline import build_feature_rows
-from mltrade.models.forecasts import ForecastBlocked
+from mltrade.models.forecasts import ForecastBlocked, RidgeForecastConfig
 from mltrade.models.walk_forward import generate_forecast_batch
 from mltrade.portfolio.optimizer import build_target
 from mltrade.portfolio.targets import OptimizationResult, PortfolioLimits
@@ -62,9 +78,6 @@ from mltrade.portfolio.targets import OptimizationResult, PortfolioLimits
 # Constants
 # ---------------------------------------------------------------------------
 
-_WARMUP_SESSIONS: int = 504  # minimum training history required
-_RETRAIN_EVERY: int = 21  # sessions between model retrains
-
 _DEFAULT_LIMITS = PortfolioLimits(
     maximum_position_weight=Decimal("0.25"),
     minimum_cash_weight=Decimal("0.05"),
@@ -72,13 +85,94 @@ _DEFAULT_LIMITS = PortfolioLimits(
 )
 
 _INITIAL_EQUITY = Decimal("1_000_000")
-_COST_SENSITIVITY_LEVELS: tuple[Decimal, ...] = (
-    Decimal("2"),
-    Decimal("5"),
-    Decimal("10"),
-)
-
 _ROUND_PLACES = 10
+type _CostBps = Annotated[Decimal, Field(ge=0, le=100)]
+
+
+def _to_validation_data(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return _to_validation_data(
+            value.model_dump(mode="python", round_trip=True)
+        )
+    if isinstance(value, Mapping):
+        return {
+            key: _to_validation_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple):
+        return tuple(_to_validation_data(item) for item in value)
+    if isinstance(value, list):
+        return [_to_validation_data(item) for item in value]
+    return value
+
+
+class _StrictBacktestConfig(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+        revalidate_instances="always",
+    )
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update is None:
+            return super().model_copy(deep=deep)
+
+        values = self.model_dump(round_trip=True)
+        values.update(_to_validation_data(update))
+        values = _to_validation_data(values)
+        if deep:
+            values = deepcopy(values)
+        return type(self).model_validate(values)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: Any = None,
+        exclude: Any = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if include is not None or exclude is not None:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError(
+                f"{type(self).__name__} cannot be partially copied"
+            )
+        if update is not None:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            return self.model_copy(update=update, deep=deep)
+        return super().copy(deep=deep)
+
+
+class BacktestConfig(_StrictBacktestConfig):
+    """Validated walk-forward backtest and reporting boundaries."""
+
+    forecast: RidgeForecastConfig = RidgeForecastConfig()
+    retrain_every_sessions: StrictInt = Field(default=21, ge=1)
+    cost_bps: _CostBps = Decimal("5")
+    cost_sensitivity_bps: tuple[_CostBps, ...] = Field(
+        default=(
+            Decimal("2"),
+            Decimal("5"),
+            Decimal("10"),
+        ),
+        min_length=1,
+    )
+    evaluation_window_sessions: StrictInt = Field(default=252, ge=63)
 
 
 def _round(x: float) -> float:
@@ -225,7 +319,7 @@ def _run_sim(
     cost_bps: Decimal,
     all_symbols: list[str],
     initial_equity: Decimal,
-) -> tuple[list[float], float, list[float], list[bool]]:
+) -> tuple[list[float], float, list[float], list[bool], list[float]]:
     """Run accounting simulation for one cost level.
 
     Parameters
@@ -258,6 +352,7 @@ def _run_sim(
     equity_curve: list[float] = [float(initial_equity)]
     turnover_vals: list[float] = []
     hit_flags: list[bool] = []
+    cost_vals: list[float] = []
 
     n_sessions = len(sessions)
 
@@ -282,6 +377,7 @@ def _run_sim(
                 current_equity_for_sizing,
                 sess.open_prices,
             )
+            costs_before = state.total_costs
             state, total_notional = _apply_fills_at_open(
                 state,
                 target_quantities,
@@ -289,8 +385,10 @@ def _run_sim(
                 cost_bps,
                 all_symbols,
             )
+            session_costs = float(state.total_costs - costs_before)
         else:
             total_notional = 0.0
+            session_costs = 0.0
 
         # Mark to market at CLOSE
         equity = mark_to_market(
@@ -307,11 +405,12 @@ def _run_sim(
         # Hit: session return positive?
         session_return = equity_float / prev_equity - 1.0 if prev_equity > 0 else 0.0
         hit_flags.append(session_return > 0.0)
+        cost_vals.append(session_costs)
 
         equity_curve.append(equity_float)
 
     total_costs_float = float(state.total_costs)
-    return equity_curve, total_costs_float, turnover_vals, hit_flags
+    return equity_curve, total_costs_float, turnover_vals, hit_flags, cost_vals
 
 
 def _run_equal_weight_sim(
@@ -418,6 +517,7 @@ def run_backtest(
     bars: tuple[DailyBar, ...],
     *,
     cost_bps: Decimal = Decimal("5"),
+    config: BacktestConfig | None = None,
     limits: PortfolioLimits | None = None,
     initial_equity: Decimal = _INITIAL_EQUITY,
 ) -> BacktestResult:
@@ -430,7 +530,11 @@ def run_backtest(
         for at least 504 distinct decision sessions (warmup) plus 1 execution
         session.
     cost_bps:
-        Headline transaction cost in basis points.
+        Backward-compatible headline transaction cost in basis points.  A
+        non-default value must match ``config.cost_bps`` when both are given.
+    config:
+        Forecast, cadence, transaction-cost, sensitivity, and evaluation-window
+        boundaries.  Defaults preserve the original backtest behavior.
     limits:
         Portfolio hard constraints.  Defaults to the standard MVP limits.
     initial_equity:
@@ -442,6 +546,14 @@ def run_backtest(
         Immutable result with headline metrics, cost sensitivity analysis,
         per-symbol contributions, and equal-weight / cash baselines.
     """
+    if config is None:
+        config = BacktestConfig(cost_bps=cost_bps)
+    elif (
+        cost_bps != Decimal("5")
+        and cost_bps != config.cost_bps
+    ):
+        raise ValueError("cost_bps conflicts with config.cost_bps")
+
     if limits is None:
         limits = _DEFAULT_LIMITS
 
@@ -467,18 +579,19 @@ def run_backtest(
     )
 
     # -----------------------------------------------------------------------
-    # Step 4: Apply 504-session warmup
+    # Step 4: Apply configured minimum-training-session warmup
     # -----------------------------------------------------------------------
-    if len(all_sessions_sorted) <= _WARMUP_SESSIONS + 1:
+    warmup_sessions = config.forecast.minimum_training_sessions
+    if len(all_sessions_sorted) <= warmup_sessions + 1:
         raise ValueError(
-            f"Not enough sessions for backtest: need > {_WARMUP_SESSIONS + 1} "
+            f"Not enough sessions for backtest: need > {warmup_sessions + 1} "
             f"sessions, got {len(all_sessions_sorted)}"
         )
 
     # Decision sessions are sessions after warmup, where a next session exists
     # for execution (so we exclude the very last session).
-    decision_sessions = all_sessions_sorted[_WARMUP_SESSIONS:-1]
-    execution_sessions = all_sessions_sorted[_WARMUP_SESSIONS + 1 :]
+    decision_sessions = all_sessions_sorted[warmup_sessions:-1]
+    execution_sessions = all_sessions_sorted[warmup_sessions + 1 :]
 
     # Backtest simulation sessions (what we track equity over) are
     # execution_sessions (we mark equity at close of execution sessions)
@@ -502,10 +615,14 @@ def run_backtest(
     last_decision_weights: dict[str, Decimal] = {}
 
     for i, decision_sess in enumerate(decision_sessions):
-        # Retrain every 21 sessions (or first session)
-        if i % _RETRAIN_EVERY == 0:
+        # Retrain at the configured cadence (and on the first session).
+        if i % config.retrain_every_sessions == 0:
             try:
-                batch = generate_forecast_batch(feature_rows, decision_sess)
+                batch = generate_forecast_batch(
+                    feature_rows,
+                    decision_sess,
+                    config=config.forecast,
+                )
                 forecasts_map: dict[str, float] = {
                     fc.symbol: fc.predicted_forward_return
                     for fc in batch.forecasts
@@ -539,10 +656,16 @@ def run_backtest(
     # -----------------------------------------------------------------------
     # Step 6: Run accounting sim for headline cost_bps
     # -----------------------------------------------------------------------
-    equity_curve, total_costs_float, turnover_vals, hit_flags = _run_sim(
+    (
+        equity_curve,
+        total_costs_float,
+        turnover_vals,
+        hit_flags,
+        cost_vals,
+    ) = _run_sim(
         decisions,
         backtest_sessions_data,
-        cost_bps,
+        config.cost_bps,
         all_symbols,
         initial_equity,
     )
@@ -554,15 +677,15 @@ def run_backtest(
         total_costs_float,
         turnover_vals,
         hit_flags,
-        cost_bps,
+        config.cost_bps,
     )
 
     # -----------------------------------------------------------------------
     # Step 7: Run cost sensitivity (same decisions, different cost levels)
     # -----------------------------------------------------------------------
     cost_sensitivity: dict[Decimal, CostSummary] = {}
-    for sens_bps in _COST_SENSITIVITY_LEVELS:
-        s_eq, s_costs, s_turn, s_hits = _run_sim(
+    for sens_bps in config.cost_sensitivity_bps:
+        s_eq, s_costs, s_turn, s_hits, _ = _run_sim(
             decisions,
             backtest_sessions_data,
             sens_bps,
@@ -579,7 +702,7 @@ def run_backtest(
     ew_return = _run_equal_weight_sim(
         backtest_sessions_data,
         all_symbols,
-        cost_bps,
+        config.cost_bps,
         initial_equity,
     )
 
@@ -588,6 +711,15 @@ def run_backtest(
     # -----------------------------------------------------------------------
     execution_session_dates = [s.session for s in backtest_sessions_data]
     per_symbol = _compute_per_symbol_contribution(bars, execution_session_dates)
+    evaluation_windows = compute_evaluation_windows(
+        equity_curve=equity_curve,
+        cost_vals=cost_vals,
+        turnover_vals=turnover_vals,
+        hit_flags=hit_flags,
+        execution_sessions=execution_session_dates,
+        cost_bps=config.cost_bps,
+        window_sessions=config.evaluation_window_sessions,
+    )
 
     # -----------------------------------------------------------------------
     # Step 10: Build result
@@ -605,4 +737,5 @@ def run_backtest(
         per_symbol_contribution=per_symbol,
         equal_weight_return=ew_return,
         cash_return=0.0,
+        evaluation_windows=evaluation_windows,
     )

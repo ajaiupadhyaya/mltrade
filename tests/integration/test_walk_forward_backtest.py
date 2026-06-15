@@ -19,9 +19,11 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
-from mltrade.backtest import BacktestResult, run_backtest
+from mltrade.backtest import BacktestConfig, BacktestResult, run_backtest
 from mltrade.data.fixtures import DeterministicBarSource
+from mltrade.models import ForecastBlocked, RidgeForecastConfig
 from mltrade.universe import MVP_UNIVERSE
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,160 @@ def test_walk_forward_backtest_is_deterministic() -> None:
     }
     # sessions must be > 250
     assert first.sessions > 250
+
+
+def test_backtest_config_defaults_preserve_existing_result() -> None:
+    original = run_backtest(_bars)
+    explicit = run_backtest(_bars, config=BacktestConfig())
+    assert explicit == original
+
+
+def test_backtest_emits_deterministic_evaluation_windows() -> None:
+    first = run_backtest(_bars, config=BacktestConfig())
+    second = run_backtest(_bars, config=BacktestConfig())
+
+    assert first.evaluation_windows
+    assert first.evaluation_windows == second.evaluation_windows
+
+
+def test_evaluation_window_length_is_configurable() -> None:
+    result = run_backtest(
+        _bars,
+        config=BacktestConfig(evaluation_window_sessions=126),
+    )
+
+    assert result.evaluation_windows
+    assert all(window.sessions <= 126 for window in result.evaluation_windows)
+    assert all(window.sessions == 126 for window in result.evaluation_windows[:-1])
+    assert all(window.sessions >= 63 for window in result.evaluation_windows)
+    execution_sessions = sorted({bar.session for bar in _bars})[505:]
+    covered_sessions = sum(
+        window.sessions for window in result.evaluation_windows
+    )
+    remainder = result.sessions % 126
+    expected_covered = (
+        result.sessions
+        if remainder == 0 or remainder >= 63
+        else result.sessions - remainder
+    )
+    assert covered_sessions == expected_covered
+    offset = 0
+    for window in result.evaluation_windows:
+        assert window.start_session == execution_sessions[offset]
+        assert window.end_session == execution_sessions[
+            offset + window.sessions - 1
+        ]
+        offset += window.sessions
+    for previous, current in zip(
+        result.evaluation_windows,
+        result.evaluation_windows[1:],
+        strict=False,
+    ):
+        assert previous.end_session < current.start_session
+
+
+def test_backtest_uses_configurable_cadence_and_costs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mltrade.backtest.engine as engine
+
+    forecast_calls = 0
+    simulated_costs: list[Decimal] = []
+
+    def block_forecast(*args: object, **kwargs: object) -> None:
+        nonlocal forecast_calls
+        forecast_calls += 1
+        raise ForecastBlocked("test block")
+
+    def fake_run_sim(
+        decisions: list[tuple[int, dict[str, Decimal]]],
+        sessions: list[object],
+        cost_bps: Decimal,
+        all_symbols: list[str],
+        initial_equity: Decimal,
+    ) -> tuple[list[float], float, list[float], list[bool], list[float]]:
+        del decisions, all_symbols
+        simulated_costs.append(cost_bps)
+        return (
+            [float(initial_equity)] * (len(sessions) + 1),
+            0.0,
+            [0.0] * len(sessions),
+            [False] * len(sessions),
+            [0.0] * len(sessions),
+        )
+
+    monkeypatch.setattr(engine, "generate_forecast_batch", block_forecast)
+    monkeypatch.setattr(engine, "_run_sim", fake_run_sim)
+
+    config = BacktestConfig(
+        retrain_every_sessions=7,
+        cost_bps=Decimal("3"),
+        cost_sensitivity_bps=(Decimal("1"), Decimal("4")),
+    )
+    result = run_backtest(_bars, config=config)
+
+    expected_calls = (result.sessions + 6) // 7
+    assert forecast_calls == expected_calls
+    assert simulated_costs == [
+        Decimal("3"),
+        Decimal("1"),
+        Decimal("4"),
+    ]
+    assert set(result.cost_sensitivity) == {Decimal("1"), Decimal("4")}
+
+
+def test_backtest_rejects_conflicting_legacy_cost() -> None:
+    with pytest.raises(ValueError, match="cost_bps"):
+        run_backtest(
+            _bars,
+            cost_bps=Decimal("7"),
+            config=BacktestConfig(cost_bps=Decimal("3")),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("retrain_every_sessions", 0),
+        ("cost_bps", Decimal("-1")),
+        ("cost_bps", Decimal("101")),
+        ("cost_sensitivity_bps", ()),
+        ("evaluation_window_sessions", 62),
+        ("retrain_every_sessions", True),
+        ("evaluation_window_sessions", 63.0),
+    ),
+)
+def test_backtest_config_rejects_invalid_values(
+    field: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        BacktestConfig.model_validate({field: value})
+
+
+def test_backtest_config_copy_revalidates_nested_constructed_models() -> None:
+    config = BacktestConfig()
+    unsafe = RidgeForecastConfig.model_construct(alpha=0.0)
+
+    updated = config.model_copy(update={"cost_bps": Decimal("7")})
+    assert updated.cost_bps == Decimal("7")
+    with pytest.raises(ValidationError, match="alpha"):
+        config.model_copy(update={"forecast": unsafe})
+    with pytest.warns(DeprecationWarning):
+        with pytest.raises(ValidationError, match="evaluation_window_sessions"):
+            config.copy(update={"evaluation_window_sessions": 1})
+
+
+def test_backtest_config_rejects_direct_constructed_nested_model() -> None:
+    unsafe = RidgeForecastConfig.model_construct(alpha=0.0)
+
+    with pytest.raises(ValidationError, match="alpha"):
+        BacktestConfig(forecast=unsafe)
+
+
+def test_backtest_config_forbids_extra_fields() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        BacktestConfig.model_validate({"slippage_model": "linear"})
 
 
 # ---------------------------------------------------------------------------
