@@ -165,6 +165,50 @@ def test_decimal_canonicalization_is_independent_of_context_precision(
     assert len({item.spec_sha256 for item in loaded}) == 1
 
 
+def test_huge_decimal_exponent_uses_bounded_scientific_notation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "huge-exponent.toml"
+    path.write_text(
+        BASELINE_TOML.replace(
+            'reference_equity = "1000000"',
+            'reference_equity = "1e1000000000"',
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_experiment_spec(path)
+
+    assert '"reference_equity":"1e+1000000000"' in loaded.canonical_json
+    assert len(loaded.canonical_json) < 1_000
+    assert len(loaded.spec_sha256) == 64
+
+
+def test_equivalent_decimal_exponent_forms_have_identical_artifacts(
+    tmp_path: Path,
+) -> None:
+    variants = (
+        "1.2300e100",
+        "123e98",
+        "12300e96",
+    )
+    loaded = []
+    for index, value in enumerate(variants):
+        path = tmp_path / f"exponent-{index}.toml"
+        path.write_text(
+            BASELINE_TOML.replace(
+                'reference_equity = "1000000"',
+                f'reference_equity = "{value}"',
+            ),
+            encoding="utf-8",
+        )
+        loaded.append(load_experiment_spec(path))
+
+    assert '"reference_equity":"1.23e+100"' in loaded[0].canonical_json
+    assert len({item.canonical_json for item in loaded}) == 1
+    assert len({item.spec_sha256 for item in loaded}) == 1
+
+
 @pytest.mark.parametrize("non_finite", ("inf", "nan"))
 def test_loading_rejects_non_finite_objective_floats(
     tmp_path: Path,

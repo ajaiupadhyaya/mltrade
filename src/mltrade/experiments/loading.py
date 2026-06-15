@@ -49,10 +49,14 @@ def _canonicalize(value: Any) -> Any:
         if not any(digits):
             return "0"
 
-        digit_string = "".join(str(digit) for digit in digits)
-        if exponent >= 0:
-            formatted = digit_string + ("0" * exponent)
-        else:
+        normalized_digits = list(digits)
+        while normalized_digits[-1] == 0:
+            normalized_digits.pop()
+            exponent += 1
+
+        digit_string = "".join(str(digit) for digit in normalized_digits)
+        adjusted_exponent = exponent + len(normalized_digits) - 1
+        if -6 <= adjusted_exponent <= 20:
             decimal_index = len(digit_string) + exponent
             if decimal_index <= 0:
                 formatted = (
@@ -60,13 +64,22 @@ def _canonicalize(value: Any) -> Any:
                     + ("0" * -decimal_index)
                     + digit_string
                 )
+            elif decimal_index >= len(digit_string):
+                formatted = (
+                    digit_string
+                    + ("0" * (decimal_index - len(digit_string)))
+                )
             else:
                 formatted = (
                     digit_string[:decimal_index]
                     + "."
                     + digit_string[decimal_index:]
                 )
-            formatted = formatted.rstrip("0").rstrip(".")
+        else:
+            coefficient = digit_string[0]
+            if len(digit_string) > 1:
+                coefficient += "." + digit_string[1:]
+            formatted = f"{coefficient}e{adjusted_exponent:+d}"
 
         return f"-{formatted}" if sign else formatted
     if isinstance(value, float):
