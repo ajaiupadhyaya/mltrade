@@ -54,6 +54,26 @@ timeout_minutes = 60
 worker_count = 1
 """.lstrip()
 
+EXPECTED_BASELINE_CANONICAL_JSON = (
+    '{"costs":{"headline_bps":"5","sensitivity_bps":["2","5","10"]},'
+    '"dataset":{"feature_version":"trend-momentum-v1","name":"daily_bars",'
+    '"snapshot_id":"daily-bars:2026-06-12",'
+    '"universe_version":"mvp-etf-v1"},'
+    '"description":"Deterministic ridge baseline",'
+    '"model":{"alpha":1.0,"family":"ridge","fit_intercept":true,'
+    '"version":"ridge-trend-v1"},'
+    '"name":"ridge_baseline",'
+    '"objective":{"maximum_drawdown":-0.35,"maximum_turnover":1.0,'
+    '"name":"robust_sharpe"},'
+    '"portfolio":{"maximum_position_weight":"0.25",'
+    '"minimum_cash_weight":"0.05","reference_equity":"1000000",'
+    '"target_annual_volatility":"0.15"},'
+    '"resources":{"max_trials":40,"timeout_minutes":60,"worker_count":1},'
+    '"schema_version":1,"seed":42,'
+    '"validation":{"embargo_sessions":21,"minimum_training_sessions":504,'
+    '"retrain_every_sessions":21}}\n'
+)
+
 
 def write_baseline(tmp_path: Path) -> Path:
     path = tmp_path / "baseline.toml"
@@ -80,9 +100,62 @@ def test_loading_builds_deterministic_canonical_json_and_hash(
     assert first.path == path.resolve()
     assert first == second
     assert first.canonical_json == expected_json
+    assert first.canonical_json == EXPECTED_BASELINE_CANONICAL_JSON
     assert first.spec_sha256 == hashlib.sha256(
         expected_json.encode("utf-8")
     ).hexdigest()
+
+
+def test_semantically_equal_decimals_have_identical_canonical_artifacts(
+    tmp_path: Path,
+) -> None:
+    variants = (
+        BASELINE_TOML,
+        BASELINE_TOML.replace(
+            'headline_bps = "5"',
+            'headline_bps = "5.0"',
+        ).replace(
+            'sensitivity_bps = ["2", "5", "10"]',
+            'sensitivity_bps = ["2.0", "5.00", "10.000"]',
+        ),
+        BASELINE_TOML.replace(
+            'headline_bps = "5"',
+            'headline_bps = "5.00"',
+        ),
+    )
+    loaded = []
+    for index, content in enumerate(variants):
+        path = tmp_path / f"variant-{index}.toml"
+        path.write_text(content, encoding="utf-8")
+        loaded.append(load_experiment_spec(path))
+
+    assert {item.canonical_json for item in loaded} == {
+        EXPECTED_BASELINE_CANONICAL_JSON
+    }
+    assert len({item.spec_sha256 for item in loaded}) == 1
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "field"),
+    (
+        ("worker_count = 1", "worker_count = true", "worker_count"),
+        ("seed = 42", "seed = true", "seed"),
+        ("schema_version = 1", "schema_version = true", "schema_version"),
+        ("fit_intercept = true", "fit_intercept = 1", "fit_intercept"),
+        ("alpha = 1.0", 'alpha = "1.5"', "alpha"),
+    ),
+)
+def test_loading_rejects_coercive_scalar_types(
+    tmp_path: Path,
+    old: str,
+    new: str,
+    field: str,
+) -> None:
+    path = tmp_path / f"invalid-{field}.toml"
+    path.write_text(BASELINE_TOML.replace(old, new), encoding="utf-8")
+
+    with pytest.raises(ExperimentSpecError, match=field):
+        load_experiment_spec(path)
 
 
 def test_loading_rejects_malformed_toml_with_source_path(

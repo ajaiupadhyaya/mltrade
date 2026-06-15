@@ -1,8 +1,10 @@
 import hashlib
 import json
 import tomllib
+from collections.abc import Mapping
+from decimal import Decimal
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from pydantic import ValidationError
 
@@ -36,6 +38,21 @@ def _safe_cause_summary(exc: OSError | RuntimeError) -> str:
     if isinstance(exc, OSError):
         return exc.strerror or type(exc).__name__
     return "home directory could not be resolved"
+
+
+def _canonicalize(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        if value == 0:
+            return "0"
+        return format(value.normalize(), "f")
+    if isinstance(value, Mapping):
+        return {
+            key: _canonicalize(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (tuple, list)):
+        return [_canonicalize(item) for item in value]
+    return value
 
 
 def load_experiment_spec(path: Path) -> LoadedExperimentSpec:
@@ -78,7 +95,7 @@ def load_experiment_spec(path: Path) -> LoadedExperimentSpec:
 
     canonical_json = (
         json.dumps(
-            spec.model_dump(mode="json"),
+            _canonicalize(spec.model_dump(mode="python")),
             sort_keys=True,
             separators=(",", ":"),
         )

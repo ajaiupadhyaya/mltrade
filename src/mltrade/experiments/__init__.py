@@ -13,7 +13,6 @@ from mltrade.experiments.specs import (
     PortfolioSpec,
     ResourceBudget,
     RidgeModelSpec,
-    StrictFrozenModel,
     ValidationSpec,
 )
 
@@ -27,7 +26,6 @@ __all__ = [
     "PortfolioSpec",
     "ResourceBudget",
     "RidgeModelSpec",
-    "StrictFrozenModel",
     "ValidationSpec",
     "load_experiment_spec",
 ]

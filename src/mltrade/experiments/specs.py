@@ -2,18 +2,38 @@ import warnings
 from collections.abc import Mapping
 from copy import deepcopy
 from decimal import Decimal
-from typing import Any, Literal, Self, override
+from typing import Annotated, Any, Literal, Self, override
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     PydanticDeprecatedSince20,
+    StrictBool,
     field_validator,
     model_validator,
 )
 
 from mltrade.storage.manifests import require_safe_path_segment
+
+type CostBps = Annotated[Decimal, Field(ge=0, le=100)]
+
+
+def _to_validation_data(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return _to_validation_data(
+            value.model_dump(mode="python", round_trip=True)
+        )
+    if isinstance(value, Mapping):
+        return {
+            key: _to_validation_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple):
+        return tuple(_to_validation_data(item) for item in value)
+    if isinstance(value, list):
+        return [_to_validation_data(item) for item in value]
+    return value
 
 
 class StrictFrozenModel(BaseModel):
@@ -30,7 +50,8 @@ class StrictFrozenModel(BaseModel):
             return super().model_copy(deep=deep)
 
         values = self.model_dump(round_trip=True)
-        values.update(update)
+        values.update(_to_validation_data(update))
+        values = _to_validation_data(values)
         if deep:
             values = deepcopy(values)
         return type(self).model_validate(values)
@@ -80,22 +101,40 @@ class DatasetSpec(StrictFrozenModel):
 class RidgeModelSpec(StrictFrozenModel):
     family: Literal["ridge"] = "ridge"
     version: Literal["ridge-trend-v1"] = "ridge-trend-v1"
-    alpha: float = Field(default=1.0, gt=0.0, le=10_000.0)
-    fit_intercept: bool = True
+    alpha: float = Field(
+        default=1.0,
+        strict=True,
+        gt=0.0,
+        le=10_000.0,
+    )
+    fit_intercept: StrictBool = True
 
 
 class ValidationSpec(StrictFrozenModel):
-    minimum_training_sessions: int = Field(default=504, ge=252, le=2520)
-    embargo_sessions: int = Field(default=21, ge=1, le=126)
-    retrain_every_sessions: int = Field(default=21, ge=1, le=126)
+    minimum_training_sessions: int = Field(
+        default=504,
+        strict=True,
+        ge=252,
+        le=2520,
+    )
+    embargo_sessions: int = Field(default=21, strict=True, ge=1, le=126)
+    retrain_every_sessions: int = Field(
+        default=21,
+        strict=True,
+        ge=1,
+        le=126,
+    )
 
 
 class CostSpec(StrictFrozenModel):
-    headline_bps: Decimal = Field(default=Decimal("5"), ge=0, le=100)
-    sensitivity_bps: tuple[Decimal, ...] = (
-        Decimal("2"),
-        Decimal("5"),
-        Decimal("10"),
+    headline_bps: CostBps = Decimal("5")
+    sensitivity_bps: tuple[CostBps, ...] = Field(
+        default=(
+            Decimal("2"),
+            Decimal("5"),
+            Decimal("10"),
+        ),
+        min_length=1,
     )
 
 
@@ -106,7 +145,7 @@ class PortfolioSpec(StrictFrozenModel):
         gt=0,
         le=1,
     )
-    minimum_cash_weight: Decimal = Field(default=Decimal("0.05"), ge=0, lt=1)
+    minimum_cash_weight: Decimal = Field(default=Decimal("0.05"), gt=0, lt=1)
     target_annual_volatility: Decimal = Field(default=Decimal("0.15"), gt=0)
 
     @model_validator(mode="after")
@@ -124,14 +163,19 @@ class PortfolioSpec(StrictFrozenModel):
 
 class ObjectiveSpec(StrictFrozenModel):
     name: Literal["robust_sharpe"] = "robust_sharpe"
-    maximum_drawdown: float = Field(default=-0.35, ge=-1.0, le=0.0)
-    maximum_turnover: float = Field(default=1.0, ge=0.0)
+    maximum_drawdown: float = Field(
+        default=-0.35,
+        strict=True,
+        ge=-1.0,
+        le=0.0,
+    )
+    maximum_turnover: float = Field(default=1.0, strict=True, ge=0.0)
 
 
 class ResourceBudget(StrictFrozenModel):
-    max_trials: int = Field(default=40, ge=1, le=500)
-    timeout_minutes: int = Field(default=60, ge=1, le=720)
-    worker_count: int = Field(default=1, ge=1, le=2)
+    max_trials: int = Field(default=40, strict=True, ge=1, le=500)
+    timeout_minutes: int = Field(default=60, strict=True, ge=1, le=720)
+    worker_count: int = Field(default=1, strict=True, ge=1, le=2)
 
 
 class ExperimentSpec(StrictFrozenModel):
@@ -145,4 +189,11 @@ class ExperimentSpec(StrictFrozenModel):
     portfolio: PortfolioSpec = PortfolioSpec()
     objective: ObjectiveSpec = ObjectiveSpec()
     resources: ResourceBudget = ResourceBudget()
-    seed: int = Field(default=42, ge=0, le=2**32 - 1)
+    seed: int = Field(default=42, strict=True, ge=0, le=2**32 - 1)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def validate_schema_version_type(cls, value: Any) -> Any:
+        if type(value) is not int:
+            raise ValueError("schema_version must be the integer 1")
+        return value

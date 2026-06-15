@@ -9,7 +9,9 @@ from mltrade.experiments.specs import (
     ExperimentSpec,
     PortfolioSpec,
     ResourceBudget,
+    RidgeModelSpec,
 )
+from mltrade.portfolio.targets import PortfolioLimits
 
 
 def make_spec() -> ExperimentSpec:
@@ -120,6 +122,43 @@ def test_model_copy_allows_valid_revalidated_updates() -> None:
     assert spec.seed == 42
 
 
+def test_model_copy_rejects_constructed_nested_model_injection() -> None:
+    spec = make_spec()
+    unsafe_dataset = DatasetSpec.model_construct(
+        name="daily_bars",
+        snapshot_id="latest",
+        universe_version="mvp-etf-v1",
+        feature_version="trend-momentum-v1",
+    )
+
+    with pytest.raises(ValidationError, match="immutable snapshot"):
+        spec.model_copy(update={"dataset": unsafe_dataset})
+
+
+def test_legacy_copy_rejects_constructed_nested_model_injection() -> None:
+    spec = make_spec()
+    unsafe_dataset = DatasetSpec.model_construct(
+        name="daily_bars",
+        snapshot_id="latest",
+        universe_version="mvp-etf-v1",
+        feature_version="trend-momentum-v1",
+    )
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(ValidationError, match="immutable snapshot"):
+            spec.copy(update={"dataset": unsafe_dataset})
+
+
+def test_model_copy_allows_valid_nested_model_updates() -> None:
+    spec = make_spec()
+    dataset = DatasetSpec(snapshot_id="daily-bars:2026-06-13")
+
+    updated = spec.model_copy(update={"dataset": dataset})
+
+    assert updated.dataset == dataset
+    assert updated.dataset is not dataset
+
+
 def test_model_copy_without_updates_preserves_deep_copy_semantics() -> None:
     spec = make_spec()
 
@@ -143,6 +182,20 @@ def test_legacy_copy_updates_are_revalidated() -> None:
     with pytest.warns(PydanticDeprecatedSince20):
         with pytest.raises(ValidationError, match="name"):
             spec.copy(update={"name": "Invalid Name"})
+
+
+@pytest.mark.parametrize(
+    "selection",
+    ({"include": {"name"}}, {"exclude": {"seed"}}),
+)
+def test_legacy_copy_rejects_partial_copies_with_warning(
+    selection: dict[str, set[str]],
+) -> None:
+    spec = make_spec()
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(TypeError, match="cannot be partially copied"):
+            spec.copy(**selection)
 
 
 def test_unknown_root_key_is_rejected() -> None:
@@ -199,6 +252,50 @@ def test_resource_budget_rejects_values_outside_boundaries(
         ResourceBudget.model_validate({field: value})
 
 
+@pytest.mark.parametrize(
+    ("factory", "field", "value"),
+    (
+        (ResourceBudget, "worker_count", True),
+        (ExperimentSpec, "seed", True),
+        (ExperimentSpec, "schema_version", True),
+        (ExperimentSpec, "schema_version", 1.0),
+        (RidgeModelSpec, "fit_intercept", 1),
+        (RidgeModelSpec, "alpha", "1.5"),
+    ),
+)
+def test_non_decimal_scalars_reject_coercive_types(
+    factory: type[ResourceBudget] | type[ExperimentSpec] | type[RidgeModelSpec],
+    field: str,
+    value: object,
+) -> None:
+    if factory is ExperimentSpec:
+        values: dict[str, object] = {
+            "name": "ridge_baseline",
+            "dataset": {"snapshot_id": "daily-bars:2026-06-12"},
+            field: value,
+        }
+    else:
+        values = {field: value}
+
+    with pytest.raises(ValidationError, match=field):
+        factory.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "sensitivity_bps",
+    (
+        (),
+        (Decimal("-0.01"),),
+        (Decimal("100.01"),),
+    ),
+)
+def test_cost_sensitivity_rejects_invalid_ranges(
+    sensitivity_bps: tuple[Decimal, ...],
+) -> None:
+    with pytest.raises(ValidationError, match="sensitivity_bps"):
+        CostSpec(sensitivity_bps=sensitivity_bps)
+
+
 def test_portfolio_rejects_conflicting_limits() -> None:
     with pytest.raises(
         ValidationError,
@@ -208,6 +305,25 @@ def test_portfolio_rejects_conflicting_limits() -> None:
             maximum_position_weight=Decimal("0.96"),
             minimum_cash_weight=Decimal("0.05"),
         )
+
+
+def test_portfolio_rejects_zero_minimum_cash_weight() -> None:
+    with pytest.raises(ValidationError, match="minimum_cash_weight"):
+        PortfolioSpec(minimum_cash_weight=Decimal("0"))
+
+
+def test_portfolio_defaults_map_to_runtime_limits() -> None:
+    portfolio = PortfolioSpec()
+
+    limits = PortfolioLimits(
+        maximum_position_weight=portfolio.maximum_position_weight,
+        minimum_cash_weight=portfolio.minimum_cash_weight,
+        target_annual_volatility=portfolio.target_annual_volatility,
+    )
+
+    assert limits.maximum_position_weight == Decimal("0.25")
+    assert limits.minimum_cash_weight == Decimal("0.05")
+    assert limits.target_annual_volatility == Decimal("0.15")
 
 
 def test_decimal_inputs_preserve_exact_values() -> None:
