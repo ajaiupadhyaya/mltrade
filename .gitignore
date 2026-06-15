@@ -16,3 +16,8 @@ data/
 artifacts/
 mlruns/
 *.db
+
+# The dashboard's exported JSON is a committed, deterministic fixture-derived
+# artifact (regenerate with `mltrade export`), not runtime state. Re-include it
+# even though the generic `data/` rule above would otherwise exclude it.
+!web/public/data/

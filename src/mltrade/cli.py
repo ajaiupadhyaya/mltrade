@@ -26,6 +26,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -118,6 +119,46 @@ def status() -> None:
     typer.echo(f"last market session: {last_session.isoformat()}")
     typer.echo(f"reference equity:    ${settings.reference_equity:,.0f}")
     typer.echo("status: ok")
+
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+_DEFAULT_DASHBOARD_OUT = Path("web/public/data/dashboard.json")
+
+
+@app.command()
+def export(
+    out: Annotated[
+        Path,
+        typer.Option(
+            "--out",
+            "-o",
+            help="Output path for the dashboard JSON (parent dirs are created).",
+        ),
+    ] = _DEFAULT_DASHBOARD_OUT,
+) -> None:
+    """Export the offline pipeline + experiment registry to dashboard JSON.
+
+    Runs the deterministic demo pipeline (data quality, walk-forward backtest
+    with its real per-session equity curve, portfolio target, pre-trade risk
+    gates, execution preview) and the research-experiment leaderboard when
+    available, then writes a single local-first JSON file the web dashboard
+    reads. No network access or secrets required.
+    """
+    from mltrade.export import write_dashboard_json
+
+    settings = _get_settings()
+    _ensure_db_dir(settings)
+
+    try:
+        written = write_dashboard_json(settings, out)
+    except ValueError as exc:
+        typer.echo(f"export failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"dashboard: {written}")
 
 
 # ---------------------------------------------------------------------------

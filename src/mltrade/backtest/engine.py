@@ -56,7 +56,7 @@ from mltrade.features.pipeline import build_feature_rows
 from mltrade.models.forecasts import ForecastBlocked
 from mltrade.models.walk_forward import generate_forecast_batch
 from mltrade.portfolio.optimizer import build_target
-from mltrade.portfolio.targets import OptimizationResult, PortfolioLimits
+from mltrade.portfolio.targets import PortfolioLimits
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -410,6 +410,118 @@ def _compute_per_symbol_contribution(
 
 
 # ---------------------------------------------------------------------------
+# Walk-forward preparation (shared by run_backtest and compute_equity_curve)
+# ---------------------------------------------------------------------------
+
+
+def _prepare_backtest(
+    bars: tuple[DailyBar, ...],
+    limits: PortfolioLimits,
+) -> tuple[list[tuple[int, dict[str, Decimal]]], list[_SessionData], list[str]]:
+    """Build the shared walk-forward inputs.
+
+    Returns ``(decisions, backtest_sessions_data, all_symbols)``.  Extracted so
+    that both ``run_backtest`` (headline metrics) and ``compute_equity_curve``
+    (dashboard export) run the *same* walk-forward decisions and accounting,
+    guaranteeing the exported curve is consistent with the reported metrics.
+    """
+    # Build all feature rows.
+    feature_rows = build_feature_rows(bars, snapshot_id="backtest-engine-v1")
+
+    # Group bars by session, determine the sorted session list.
+    session_map = _build_session_map(bars)
+    all_sessions_sorted = sorted(session_map.keys())
+
+    # Identify all unique symbols (sorted for determinism).
+    all_symbols: list[str] = sorted({bar.instrument.symbol for bar in bars})
+
+    # Apply the 504-session warmup.
+    if len(all_sessions_sorted) <= _WARMUP_SESSIONS + 1:
+        raise ValueError(
+            f"Not enough sessions for backtest: need > {_WARMUP_SESSIONS + 1} "
+            f"sessions, got {len(all_sessions_sorted)}"
+        )
+
+    # Decision sessions are after warmup, where a next session exists for
+    # execution (exclude the very last session); execution at the next open.
+    decision_sessions = all_sessions_sorted[_WARMUP_SESSIONS:-1]
+    execution_sessions = all_sessions_sorted[_WARMUP_SESSIONS + 1 :]
+    backtest_sessions_data: list[_SessionData] = [
+        session_map[sess] for sess in execution_sessions
+    ]
+
+    # Walk-forward: compute decisions (forecasts -> weights) ONCE; replayed
+    # for each cost level by the caller.  decisions[i] -> backtest step i.
+    decisions: list[tuple[int, dict[str, Decimal]]] = []
+    last_decision_weights: dict[str, Decimal] = {}
+
+    for i, decision_sess in enumerate(decision_sessions):
+        # Retrain every 21 sessions (or the first session).
+        if i % _RETRAIN_EVERY == 0:
+            try:
+                batch = generate_forecast_batch(feature_rows, decision_sess)
+                forecasts_map: dict[str, float] = {
+                    fc.symbol: fc.predicted_forward_return
+                    for fc in batch.forecasts
+                }
+                # Trailing realized vol per symbol at the decision session.
+                vol_map: dict[str, float] = {}
+                for row in feature_rows:
+                    if row.decision_session == decision_sess and not row.missing:
+                        vol_map[row.symbol] = row.realized_volatility_21
+
+                current_target = build_target(
+                    forecasts=forecasts_map,
+                    trailing_volatility=vol_map,
+                    limits=limits,
+                )
+                if not current_target.blocked:
+                    last_decision_weights = dict(current_target.weights)
+                # If blocked, hold previous weights.
+            except ForecastBlocked:
+                # Hold previous weights (all-cash if no previous).
+                pass
+
+        decisions.append((i, last_decision_weights.copy()))
+
+    return decisions, backtest_sessions_data, all_symbols
+
+
+def compute_equity_curve(
+    bars: tuple[DailyBar, ...],
+    *,
+    cost_bps: Decimal = Decimal("5"),
+    limits: PortfolioLimits | None = None,
+    initial_equity: Decimal = _INITIAL_EQUITY,
+) -> list[tuple[date, float]]:
+    """Return the per-session ``(session_date, equity)`` curve for the strategy.
+
+    Additive helper for the dashboard export.  Reuses the exact walk-forward
+    decisions and accounting simulation that ``run_backtest`` uses, so the curve
+    is consistent with the reported headline metrics.  ``run_backtest``
+    behaviour is unchanged.  Each point is the mark-to-market equity at that
+    execution session's close.
+    """
+    if limits is None:
+        limits = _DEFAULT_LIMITS
+    if not bars:
+        raise ValueError("bars must not be empty")
+
+    decisions, backtest_sessions_data, all_symbols = _prepare_backtest(bars, limits)
+    equity_curve, _costs, _turnover, _hits = _run_sim(
+        decisions,
+        backtest_sessions_data,
+        cost_bps,
+        all_symbols,
+        initial_equity,
+    )
+    dates = [s.session for s in backtest_sessions_data]
+    # equity_curve[0] is the pre-trade initial equity; equity_curve[i + 1] is
+    # the close-of-session equity for backtest_sessions_data[i].
+    return [(dates[i], _round(equity_curve[i + 1])) for i in range(len(dates))]
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -449,92 +561,10 @@ def run_backtest(
         raise ValueError("bars must not be empty")
 
     # -----------------------------------------------------------------------
-    # Step 1: Build all feature rows
+    # Steps 1-5: Build features, sessions, symbols, warmup, and walk-forward
+    # decisions (shared with compute_equity_curve for consistency).
     # -----------------------------------------------------------------------
-    feature_rows = build_feature_rows(bars, snapshot_id="backtest-engine-v1")
-
-    # -----------------------------------------------------------------------
-    # Step 2: Group bars by session, determine sorted session list
-    # -----------------------------------------------------------------------
-    session_map = _build_session_map(bars)
-    all_sessions_sorted = sorted(session_map.keys())
-
-    # -----------------------------------------------------------------------
-    # Step 3: Identify all unique symbols (sorted for determinism)
-    # -----------------------------------------------------------------------
-    all_symbols: list[str] = sorted(
-        {bar.instrument.symbol for bar in bars}
-    )
-
-    # -----------------------------------------------------------------------
-    # Step 4: Apply 504-session warmup
-    # -----------------------------------------------------------------------
-    if len(all_sessions_sorted) <= _WARMUP_SESSIONS + 1:
-        raise ValueError(
-            f"Not enough sessions for backtest: need > {_WARMUP_SESSIONS + 1} "
-            f"sessions, got {len(all_sessions_sorted)}"
-        )
-
-    # Decision sessions are sessions after warmup, where a next session exists
-    # for execution (so we exclude the very last session).
-    decision_sessions = all_sessions_sorted[_WARMUP_SESSIONS:-1]
-    execution_sessions = all_sessions_sorted[_WARMUP_SESSIONS + 1 :]
-
-    # Backtest simulation sessions (what we track equity over) are
-    # execution_sessions (we mark equity at close of execution sessions)
-    # Actually we want to track equity from the first execution session onward.
-    # Each backtest "step":
-    #   - decision_sessions[i] is when we compute the signal
-    #   - execution_sessions[i] is when we execute (open) and hold to close
-    backtest_sessions_data: list[_SessionData] = [
-        session_map[sess] for sess in execution_sessions
-    ]
-
-    # -----------------------------------------------------------------------
-    # Step 5: Walk-forward: compute decisions (forecasts → weights)
-    #         ONCE, then replay for each cost level.
-    # -----------------------------------------------------------------------
-    # decisions: list of (execution_session_index, target_weights)
-    # index refers to backtest_sessions_data index
-    decisions: list[tuple[int, dict[str, Decimal]]] = []
-
-    current_target: OptimizationResult | None = None
-    last_decision_weights: dict[str, Decimal] = {}
-
-    for i, decision_sess in enumerate(decision_sessions):
-        # Retrain every 21 sessions (or first session)
-        if i % _RETRAIN_EVERY == 0:
-            try:
-                batch = generate_forecast_batch(feature_rows, decision_sess)
-                forecasts_map: dict[str, float] = {
-                    fc.symbol: fc.predicted_forward_return
-                    for fc in batch.forecasts
-                }
-
-                # Extract trailing vol for symbols in forecast batch
-                # Use the decision session's feature rows
-                vol_map: dict[str, float] = {}
-                for row in feature_rows:
-                    if row.decision_session == decision_sess and not row.missing:
-                        vol_map[row.symbol] = row.realized_volatility_21
-
-                current_target = build_target(
-                    forecasts=forecasts_map,
-                    trailing_volatility=vol_map,
-                    limits=limits,
-                )
-
-                if not current_target.blocked:
-                    last_decision_weights = dict(current_target.weights)
-                # If blocked, keep previous weights (set below)
-
-            except ForecastBlocked:
-                # Hold previous weights (all-cash if no previous)
-                pass
-
-        # Store decision for this execution slot
-        # execution_session_index = i (1:1 mapping: decision[i] → execution[i])
-        decisions.append((i, last_decision_weights.copy()))
+    decisions, backtest_sessions_data, all_symbols = _prepare_backtest(bars, limits)
 
     # -----------------------------------------------------------------------
     # Step 6: Run accounting sim for headline cost_bps
