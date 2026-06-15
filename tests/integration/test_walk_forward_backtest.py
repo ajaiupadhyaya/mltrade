@@ -168,6 +168,55 @@ def test_backtest_uses_configurable_cadence_and_costs(
     assert set(result.cost_sensitivity) == {Decimal("1"), Decimal("4")}
 
 
+def test_headline_sensitivity_reuses_headline_simulation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mltrade.backtest.engine as engine
+
+    simulated_costs: list[Decimal] = []
+
+    def block_forecast(*args: object, **kwargs: object) -> None:
+        raise ForecastBlocked("test block")
+
+    original_run_sim = engine._run_sim
+
+    def track_run_sim(
+        decisions: list[tuple[int, dict[str, Decimal]]],
+        sessions: list[engine._SessionData],
+        cost_bps: Decimal,
+        all_symbols: list[str],
+        initial_equity: Decimal,
+    ) -> tuple[list[float], float, list[float], list[bool], list[float]]:
+        simulated_costs.append(cost_bps)
+        return original_run_sim(
+            decisions,
+            sessions,
+            cost_bps,
+            all_symbols,
+            initial_equity,
+        )
+
+    monkeypatch.setattr(engine, "generate_forecast_batch", block_forecast)
+    monkeypatch.setattr(engine, "_run_sim", track_run_sim)
+
+    result = run_backtest(
+        _bars,
+        config=BacktestConfig(
+            cost_bps=Decimal("5"),
+            cost_sensitivity_bps=(
+                Decimal("2"),
+                Decimal("5"),
+                Decimal("10"),
+            ),
+        ),
+    )
+
+    assert simulated_costs == [Decimal("5"), Decimal("2"), Decimal("10")]
+    assert result.cost_sensitivity[Decimal("5")].annualized_return == (
+        result.annualized_return
+    )
+
+
 def test_backtest_rejects_conflicting_legacy_cost() -> None:
     with pytest.raises(ValueError, match="cost_bps"):
         run_backtest(
@@ -285,6 +334,17 @@ def test_backtest_config_rejects_direct_constructed_nested_model() -> None:
 def test_backtest_config_forbids_extra_fields() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
         BacktestConfig.model_validate({"slippage_model": "linear"})
+
+
+def test_backtest_config_rejects_duplicate_cost_sensitivity() -> None:
+    with pytest.raises(ValidationError, match="unique"):
+        BacktestConfig(
+            cost_sensitivity_bps=(
+                Decimal("2"),
+                Decimal("5"),
+                Decimal("2"),
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

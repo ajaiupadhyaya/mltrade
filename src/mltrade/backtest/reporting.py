@@ -72,6 +72,9 @@ class EvaluationWindow(BaseModel):
     annualized_volatility: float
     sharpe: float
     max_drawdown: float
+    total_costs: float
+    turnover: float
+    hit_rate: float
 
 
 class BacktestResult(BaseModel):
@@ -241,6 +244,9 @@ def compute_evaluation_windows(
                 annualized_volatility=summary.annualized_volatility,
                 sharpe=summary.sharpe,
                 max_drawdown=summary.max_drawdown,
+                total_costs=summary.total_costs,
+                turnover=summary.turnover,
+                hit_rate=summary.hit_rate,
             )
         )
         start = end

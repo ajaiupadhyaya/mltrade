@@ -53,6 +53,7 @@ from pydantic import (
     Field,
     PydanticDeprecatedSince20,
     StrictInt,
+    field_validator,
 )
 
 from mltrade.backtest.accounting import (
@@ -176,6 +177,15 @@ class BacktestConfig(_StrictBacktestConfig):
         min_length=1,
     )
     evaluation_window_sessions: StrictInt = Field(default=252, ge=63)
+
+    @field_validator("cost_sensitivity_bps")
+    @classmethod
+    def _cost_sensitivity_must_be_unique(
+        cls, value: tuple[Decimal, ...]
+    ) -> tuple[Decimal, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("cost_sensitivity_bps values must be unique")
+        return value
 
 
 def _round(x: float) -> float:
@@ -690,6 +700,10 @@ def run_backtest(
     # -----------------------------------------------------------------------
     cost_sensitivity: dict[Decimal, CostSummary] = {}
     for sens_bps in config.cost_sensitivity_bps:
+        if sens_bps == config.cost_bps:
+            # Reuse the headline simulation instead of recomputing it.
+            cost_sensitivity[sens_bps] = headline_summary
+            continue
         s_eq, s_costs, s_turn, s_hits, _ = _run_sim(
             decisions,
             backtest_sessions_data,

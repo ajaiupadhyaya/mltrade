@@ -497,6 +497,31 @@ def test_conflicting_config_and_legacy_embargo_rejected() -> None:
         )
 
 
+@pytest.mark.parametrize("value", (21.0, True, "21"))
+def test_legacy_embargo_requires_strict_int_without_config(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="embargo_sessions"):
+        generate_forecast_batch(
+            _feature_rows,
+            _DECISION_SESSION,
+            embargo_sessions=value,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("value", (21.0, True, "21"))
+def test_legacy_embargo_requires_strict_int_with_equal_config(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="embargo_sessions"):
+        generate_forecast_batch(
+            _feature_rows,
+            _DECISION_SESSION,
+            config=RidgeForecastConfig(embargo_sessions=21),
+            embargo_sessions=value,  # type: ignore[arg-type]
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     (

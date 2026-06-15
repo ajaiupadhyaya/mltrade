@@ -448,13 +448,16 @@ def generate_forecast_batch(
             config = RidgeForecastConfig()
         else:
             config = RidgeForecastConfig(embargo_sessions=embargo_sessions)
-    elif (
-        embargo_sessions is not None
-        and embargo_sessions != config.embargo_sessions
-    ):
-        raise ValueError(
-            "embargo_sessions conflicts with config.embargo_sessions"
-        )
+    elif embargo_sessions is not None:
+        # Strict-int-validate the legacy override even when a config is given,
+        # then reject genuine conflicts between the two.
+        legacy_embargo = RidgeForecastConfig(
+            embargo_sessions=embargo_sessions
+        ).embargo_sessions
+        if legacy_embargo != config.embargo_sessions:
+            raise ValueError(
+                "embargo_sessions conflicts with config.embargo_sessions"
+            )
 
     # ------------------------------------------------------------------
     # Step 1: build embargoed training split
