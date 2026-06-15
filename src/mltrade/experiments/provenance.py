@@ -61,9 +61,18 @@ def capture_provenance(
     *,
     command: tuple[str, ...],
 ) -> RunProvenance:
-    """Capture git + runtime provenance for an experiment run."""
-    commit = _git_commit(repo_root)
-    diff = _git_diff(repo_root)
+    """Capture git + runtime provenance for an experiment run.
+
+    Resilient outside a git checkout (e.g. an installed container image): if git
+    is unavailable the commit falls back to a sentinel and the run is treated as
+    clean, so identity stays content-addressed by spec + dataset.
+    """
+    try:
+        commit = _git_commit(repo_root)
+        diff = _git_diff(repo_root)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        commit = "0" * 40
+        diff = ""
     git_dirty = bool(diff)
     git_diff_sha256 = (
         hashlib.sha256(diff.encode("utf-8")).hexdigest() if git_dirty else None

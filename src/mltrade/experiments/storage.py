@@ -50,6 +50,10 @@ class RunStore:
     def _run_dir(self, run_id: str) -> Path:
         return self.runs_root / require_safe_path_segment(run_id)
 
+    def run_directory(self, run_id: str) -> Path:
+        """Return the canonical directory for *run_id* (validated segment)."""
+        return self._run_dir(run_id)
+
     def save(
         self,
         record: ExperimentRunRecord,
