@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* ----------------------------------------------------------------------------
+   "Redwood" design tokens — warm 70s California forest palette.
+   Exposed as Tailwind v4 theme colors (bg-pine, text-ink, border-line, ...).
+---------------------------------------------------------------------------- */
+@theme {
+  --color-canvas: #ece3d2;
+  --color-canvas-deep: #e4d9c3;
+  --color-surface: #fbf7ef;
+  --color-surface-2: #f5eee0;
+  --color-sunk: #e7dcc8;
+
+  --color-ink: #2c2620;
+  --color-ink-soft: #6b5f4e;
+  --color-ink-faint: #9c8f78;
+
+  --color-line: #d8c7ad;
+  --color-line-soft: #e5d9c2;
+
+  --color-pine: #2e4a3a;
+  --color-forest: #3c5e48;
+  --color-sage: #8aa383;
+  --color-sage-soft: #bccbb0;
+
+  --color-clay: #bc5b3c;
+  --color-clay-soft: #e0a689;
+  --color-ochre: #ce9248;
+  --color-ochre-soft: #e4c088;
+  --color-redwood: #9c4a2e;
+  --color-sky: #6e8ca0;
+
+  --font-display: "Fraunces", Georgia, serif;
+  --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+}
+
+/* Tabular figures everywhere numbers matter (set per-element via font-mono). */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
