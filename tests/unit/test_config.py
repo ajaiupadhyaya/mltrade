@@ -27,6 +27,19 @@ def test_experiment_paths_default_under_data_root(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("experiment_root", ["", "   "])
+def test_blank_experiment_root_uses_data_root_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    experiment_root: str,
+) -> None:
+    monkeypatch.setenv("MLTRADE_EXPERIMENT_ROOT", experiment_root)
+
+    settings = Settings(data_root=tmp_path)
+
+    assert settings.experiment_root == tmp_path / "experiments"
+
+
 def test_explicit_experiment_root_is_absolute(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -49,6 +62,54 @@ def test_explicit_experiment_root_expands_home(
     settings = Settings(data_root=tmp_path, experiment_root=Path("~/research"))
 
     assert settings.experiment_root == (home / "research").resolve()
+
+
+def test_model_copy_recomputes_derived_experiment_root(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path / "original")
+
+    copied = settings.model_copy(update={"data_root": tmp_path / "copied"})
+
+    assert copied.data_root == (tmp_path / "copied").resolve()
+    assert copied.experiment_root == (tmp_path / "copied" / "experiments").resolve()
+
+
+def test_model_copy_normalizes_explicit_experiment_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(data_root=tmp_path / "original")
+
+    copied = settings.model_copy(
+        update={
+            "data_root": tmp_path / "copied",
+            "experiment_root": Path("nested") / ".." / "research",
+        }
+    )
+
+    assert copied.data_root == (tmp_path / "copied").resolve()
+    assert copied.experiment_root == (tmp_path / "research").resolve()
+
+
+def test_model_copy_revalidates_safety_constraints(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path)
+
+    with pytest.raises(ValidationError, match="not available"):
+        settings.model_copy(update={"live_trading_enabled": True})
+
+
+def test_model_copy_preserves_derived_path_for_risk_updates(tmp_path: Path) -> None:
+    database_url = "postgresql+psycopg://user:db-password@localhost/mltrade"
+    settings = Settings(data_root=tmp_path, database_url=database_url)
+
+    copied = settings.model_copy(
+        update={"maximum_position_weight": Decimal("0.20")}
+    )
+
+    assert copied.maximum_position_weight == Decimal("0.20")
+    assert copied.experiment_root == tmp_path / "experiments"
+    assert copied.database_url == database_url
+    assert copied.model_dump()["database_url"] == "[REDACTED]"
 
 
 def test_settings_tests_ignore_local_dotenv(

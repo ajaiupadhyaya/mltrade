@@ -1,6 +1,9 @@
+from collections.abc import Mapping
+from copy import deepcopy
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from typing import Any, Self
 
 from pydantic import (
     Field,
@@ -53,6 +56,13 @@ class Settings(BaseSettings):
     def make_data_root_absolute(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
+    @field_validator("experiment_root", mode="before")
+    @classmethod
+    def normalize_blank_experiment_root(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
+
     @field_validator("log_level")
     @classmethod
     def normalize_log_level(cls, value: str) -> str:
@@ -88,6 +98,22 @@ class Settings(BaseSettings):
         else:
             self.experiment_root = self.experiment_root.expanduser().resolve()
         return self
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        payload = {
+            name: deepcopy(getattr(self, name)) if deep else getattr(self, name)
+            for name in type(self).model_fields
+        }
+        changes = dict(update or {})
+        if "data_root" in changes and "experiment_root" not in changes:
+            payload["experiment_root"] = None
+        payload.update(changes)
+        return type(self).model_validate(payload)
 
     @property
     def mlflow_tracking_root(self) -> Path:
