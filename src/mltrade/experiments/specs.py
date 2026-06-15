@@ -1,10 +1,14 @@
+import warnings
+from collections.abc import Mapping
+from copy import deepcopy
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal, Self, override
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PydanticDeprecatedSince20,
     field_validator,
     model_validator,
 )
@@ -14,6 +18,49 @@ from mltrade.storage.manifests import require_safe_path_segment
 
 class StrictFrozenModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    @override
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if update is None:
+            return super().model_copy(deep=deep)
+
+        values = self.model_dump(round_trip=True)
+        values.update(update)
+        if deep:
+            values = deepcopy(values)
+        return type(self).model_validate(values)
+
+    @override
+    def copy(
+        self,
+        *,
+        include: Any = None,
+        exclude: Any = None,
+        update: dict[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        if include is not None or exclude is not None:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            raise TypeError(
+                f"{type(self).__name__} cannot be partially copied"
+            )
+        if update is not None:
+            warnings.warn(
+                "The `copy` method is deprecated; use `model_copy` instead.",
+                category=PydanticDeprecatedSince20,
+                stacklevel=2,
+            )
+            return self.model_copy(update=update, deep=deep)
+        return super().copy(deep=deep)
 
 
 class DatasetSpec(StrictFrozenModel):

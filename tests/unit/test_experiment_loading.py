@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import mltrade.experiments.loading as experiment_loading
 from mltrade.experiments.loading import (
     ExperimentSpecError,
     load_experiment_spec,
@@ -129,3 +130,58 @@ def test_loading_wraps_decoding_errors_with_source_path(tmp_path: Path) -> None:
         load_experiment_spec(path)
 
     assert str(path.resolve()) in str(exc_info.value)
+
+
+def test_loading_expands_tilde_from_controlled_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    experiment_dir = home / "experiments"
+    experiment_dir.mkdir(parents=True)
+    path = experiment_dir / "baseline.toml"
+    path.write_text(BASELINE_TOML, encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+
+    loaded = load_experiment_spec(Path("~/experiments/baseline.toml"))
+
+    assert loaded.path == path.resolve()
+
+
+def test_loading_wraps_path_normalization_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = Path("~/secret.toml")
+
+    def fail_expanduser(self: Path) -> Path:
+        raise OSError(5, "normalization failed", "private-value")
+
+    monkeypatch.setattr(Path, "expanduser", fail_expanduser)
+
+    with pytest.raises(ExperimentSpecError) as exc_info:
+        load_experiment_spec(source)
+
+    message = str(exc_info.value)
+    assert str(source) in message
+    assert "normalization failed" in message
+    assert "private-value" not in message
+
+
+def test_loading_wraps_generic_os_errors_without_file_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "baseline.toml"
+
+    def fail_open(self: Path, mode: str) -> object:
+        raise OSError(13, "permission denied", "private-file-contents")
+
+    monkeypatch.setattr(experiment_loading.Path, "open", fail_open)
+
+    with pytest.raises(ExperimentSpecError) as exc_info:
+        load_experiment_spec(path)
+
+    message = str(exc_info.value)
+    assert str(path.resolve()) in message
+    assert "permission denied" in message
+    assert "private-file-contents" not in message

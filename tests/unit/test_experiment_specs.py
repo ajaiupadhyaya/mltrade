@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
+from pydantic import PydanticDeprecatedSince20, ValidationError
 
 from mltrade.experiments.specs import (
     CostSpec,
@@ -81,6 +81,70 @@ def test_models_are_frozen() -> None:
         spec.dataset.snapshot_id = "changed"  # type: ignore[misc]
 
 
+def test_dataset_spec_model_copy_revalidates_updates() -> None:
+    dataset = make_spec().dataset
+
+    with pytest.raises(ValidationError, match="immutable snapshot"):
+        dataset.model_copy(update={"snapshot_id": "latest"})
+
+
+def test_experiment_spec_model_copy_revalidates_updates() -> None:
+    spec = make_spec()
+
+    with pytest.raises(ValidationError, match="name"):
+        spec.model_copy(update={"name": "Invalid Name"})
+
+
+def test_portfolio_spec_model_copy_revalidates_cross_field_limits() -> None:
+    portfolio = make_spec().portfolio
+
+    with pytest.raises(
+        ValidationError,
+        match="maximum_position_weight cannot exceed",
+    ):
+        portfolio.model_copy(
+            update={"maximum_position_weight": Decimal("0.96")}
+        )
+
+
+def test_model_copy_allows_valid_revalidated_updates() -> None:
+    spec = make_spec()
+
+    updated = spec.model_copy(
+        update={"name": "ridge_candidate", "seed": 7},
+    )
+
+    assert updated.name == "ridge_candidate"
+    assert updated.seed == 7
+    assert spec.name == "ridge_baseline"
+    assert spec.seed == 42
+
+
+def test_model_copy_without_updates_preserves_deep_copy_semantics() -> None:
+    spec = make_spec()
+
+    shallow = spec.model_copy()
+    deep = spec.model_copy(deep=True)
+
+    assert shallow == spec
+    assert shallow.dataset is spec.dataset
+    assert deep == spec
+    assert deep.dataset is not spec.dataset
+
+
+def test_legacy_copy_updates_are_revalidated() -> None:
+    spec = make_spec()
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        updated = spec.copy(update={"name": "ridge_candidate"})
+
+    assert updated.name == "ridge_candidate"
+
+    with pytest.warns(PydanticDeprecatedSince20):
+        with pytest.raises(ValidationError, match="name"):
+            spec.copy(update={"name": "Invalid Name"})
+
+
 def test_unknown_root_key_is_rejected() -> None:
     values = make_spec().model_dump()
     values["unexpected"] = True
@@ -116,9 +180,23 @@ def test_snapshot_id_rejects_unsafe_values(snapshot_id: str) -> None:
         DatasetSpec(snapshot_id=snapshot_id)
 
 
-def test_resource_budget_rejects_unbalanced_worker_count() -> None:
-    with pytest.raises(ValidationError, match="worker_count"):
-        ResourceBudget(worker_count=8)
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("max_trials", 0),
+        ("max_trials", 501),
+        ("timeout_minutes", 0),
+        ("timeout_minutes", 721),
+        ("worker_count", 0),
+        ("worker_count", 3),
+    ),
+)
+def test_resource_budget_rejects_values_outside_boundaries(
+    field: str,
+    value: int,
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        ResourceBudget.model_validate({field: value})
 
 
 def test_portfolio_rejects_conflicting_limits() -> None:

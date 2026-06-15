@@ -32,8 +32,21 @@ def _validation_summary(exc: ValidationError) -> str:
     return "; ".join(details)
 
 
+def _safe_cause_summary(exc: OSError | RuntimeError) -> str:
+    if isinstance(exc, OSError):
+        return exc.strerror or type(exc).__name__
+    return "home directory could not be resolved"
+
+
 def load_experiment_spec(path: Path) -> LoadedExperimentSpec:
-    source_path = path.expanduser().resolve()
+    original_path = str(path)
+    try:
+        source_path = path.expanduser().resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ExperimentSpecError(
+            f"Failed to normalize experiment spec path {original_path}: "
+            f"{_safe_cause_summary(exc)}"
+        ) from exc
 
     try:
         with source_path.open("rb") as source:
@@ -58,9 +71,9 @@ def load_experiment_spec(path: Path) -> LoadedExperimentSpec:
             f"validation failed: {_validation_summary(exc)}"
         ) from exc
     except OSError as exc:
-        cause = exc.strerror or type(exc).__name__
         raise ExperimentSpecError(
-            f"Failed to load experiment spec {source_path}: {cause}"
+            f"Failed to load experiment spec {source_path}: "
+            f"{_safe_cause_summary(exc)}"
         ) from exc
 
     canonical_json = (
