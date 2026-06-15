@@ -1,0 +1,155 @@
+from decimal import Decimal
+
+import pytest
+from pydantic import ValidationError
+
+from mltrade.experiments.specs import (
+    CostSpec,
+    DatasetSpec,
+    ExperimentSpec,
+    PortfolioSpec,
+    ResourceBudget,
+)
+
+
+def make_spec() -> ExperimentSpec:
+    return ExperimentSpec(
+        name="ridge_baseline",
+        dataset=DatasetSpec(snapshot_id="daily-bars:2026-06-12"),
+    )
+
+
+def test_baseline_spec_defaults_match_the_versioned_contract() -> None:
+    spec = make_spec()
+
+    assert spec.model_dump() == {
+        "schema_version": 1,
+        "name": "ridge_baseline",
+        "description": "",
+        "dataset": {
+            "name": "daily_bars",
+            "snapshot_id": "daily-bars:2026-06-12",
+            "universe_version": "mvp-etf-v1",
+            "feature_version": "trend-momentum-v1",
+        },
+        "model": {
+            "family": "ridge",
+            "version": "ridge-trend-v1",
+            "alpha": 1.0,
+            "fit_intercept": True,
+        },
+        "validation": {
+            "minimum_training_sessions": 504,
+            "embargo_sessions": 21,
+            "retrain_every_sessions": 21,
+        },
+        "costs": {
+            "headline_bps": Decimal("5"),
+            "sensitivity_bps": (
+                Decimal("2"),
+                Decimal("5"),
+                Decimal("10"),
+            ),
+        },
+        "portfolio": {
+            "reference_equity": Decimal("1000000"),
+            "maximum_position_weight": Decimal("0.25"),
+            "minimum_cash_weight": Decimal("0.05"),
+            "target_annual_volatility": Decimal("0.15"),
+        },
+        "objective": {
+            "name": "robust_sharpe",
+            "maximum_drawdown": -0.35,
+            "maximum_turnover": 1.0,
+        },
+        "resources": {
+            "max_trials": 40,
+            "timeout_minutes": 60,
+            "worker_count": 1,
+        },
+        "seed": 42,
+    }
+
+
+def test_models_are_frozen() -> None:
+    spec = make_spec()
+
+    with pytest.raises(ValidationError, match="frozen"):
+        spec.name = "changed"  # type: ignore[misc]
+
+    with pytest.raises(ValidationError, match="frozen"):
+        spec.dataset.snapshot_id = "changed"  # type: ignore[misc]
+
+
+def test_unknown_root_key_is_rejected() -> None:
+    values = make_spec().model_dump()
+    values["unexpected"] = True
+
+    with pytest.raises(ValidationError, match="unexpected"):
+        ExperimentSpec.model_validate(values)
+
+
+def test_unknown_nested_key_is_rejected() -> None:
+    values = make_spec().model_dump()
+    values["dataset"]["unexpected"] = True
+
+    with pytest.raises(ValidationError, match=r"dataset\.unexpected"):
+        ExperimentSpec.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "snapshot_id",
+    (
+        "latest",
+        "",
+        ".",
+        "..",
+        "snap/child",
+        r"snap\child",
+        "../snapshot",
+        "snapshot with spaces",
+        "snapshot@version",
+    ),
+)
+def test_snapshot_id_rejects_unsafe_values(snapshot_id: str) -> None:
+    with pytest.raises(ValidationError):
+        DatasetSpec(snapshot_id=snapshot_id)
+
+
+def test_resource_budget_rejects_unbalanced_worker_count() -> None:
+    with pytest.raises(ValidationError, match="worker_count"):
+        ResourceBudget(worker_count=8)
+
+
+def test_portfolio_rejects_conflicting_limits() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="maximum_position_weight cannot exceed",
+    ):
+        PortfolioSpec(
+            maximum_position_weight=Decimal("0.96"),
+            minimum_cash_weight=Decimal("0.05"),
+        )
+
+
+def test_decimal_inputs_preserve_exact_values() -> None:
+    costs = CostSpec(
+        headline_bps=Decimal("3.125"),
+        sensitivity_bps=(Decimal("1.25"), Decimal("3.125")),
+    )
+    portfolio = PortfolioSpec(
+        reference_equity=Decimal("1234567.89"),
+        maximum_position_weight=Decimal("0.123456789"),
+        minimum_cash_weight=Decimal("0.075"),
+        target_annual_volatility=Decimal("0.101"),
+    )
+
+    assert costs.headline_bps == Decimal("3.125")
+    assert costs.sensitivity_bps == (
+        Decimal("1.25"),
+        Decimal("3.125"),
+    )
+    assert portfolio.reference_equity == Decimal("1234567.89")
+    assert portfolio.maximum_position_weight == Decimal("0.123456789")
+    assert portfolio.minimum_cash_weight == Decimal("0.075")
+    assert portfolio.target_annual_volatility == Decimal("0.101")
