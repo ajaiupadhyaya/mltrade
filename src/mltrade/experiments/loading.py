@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import tomllib
 from collections.abc import Mapping
 from decimal import Decimal
@@ -42,9 +43,36 @@ def _safe_cause_summary(exc: OSError | RuntimeError) -> str:
 
 def _canonicalize(value: Any) -> Any:
     if isinstance(value, Decimal):
-        if value == 0:
+        sign, digits, exponent = value.as_tuple()
+        if not isinstance(exponent, int):
+            raise ValueError("canonical JSON does not support non-finite Decimal")
+        if not any(digits):
             return "0"
-        return format(value.normalize(), "f")
+
+        digit_string = "".join(str(digit) for digit in digits)
+        if exponent >= 0:
+            formatted = digit_string + ("0" * exponent)
+        else:
+            decimal_index = len(digit_string) + exponent
+            if decimal_index <= 0:
+                formatted = (
+                    "0."
+                    + ("0" * -decimal_index)
+                    + digit_string
+                )
+            else:
+                formatted = (
+                    digit_string[:decimal_index]
+                    + "."
+                    + digit_string[decimal_index:]
+                )
+            formatted = formatted.rstrip("0").rstrip(".")
+
+        return f"-{formatted}" if sign else formatted
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("canonical JSON does not support non-finite float")
+        return 0.0 if value == 0.0 else value
     if isinstance(value, Mapping):
         return {
             key: _canonicalize(item)
@@ -98,6 +126,7 @@ def load_experiment_spec(path: Path) -> LoadedExperimentSpec:
             _canonicalize(spec.model_dump(mode="python")),
             sort_keys=True,
             separators=(",", ":"),
+            allow_nan=False,
         )
         + "\n"
     )

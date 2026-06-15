@@ -282,6 +282,22 @@ def test_non_decimal_scalars_reject_coercive_types(
 
 
 @pytest.mark.parametrize(
+    ("factory", "field", "value"),
+    (
+        (RidgeModelSpec, "alpha", float("inf")),
+        (RidgeModelSpec, "alpha", float("nan")),
+    ),
+)
+def test_ridge_model_rejects_non_finite_floats(
+    factory: type[RidgeModelSpec],
+    field: str,
+    value: float,
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        factory.model_validate({field: value})
+
+
+@pytest.mark.parametrize(
     "sensitivity_bps",
     (
         (),

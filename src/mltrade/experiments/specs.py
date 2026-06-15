@@ -104,6 +104,7 @@ class RidgeModelSpec(StrictFrozenModel):
     alpha: float = Field(
         default=1.0,
         strict=True,
+        allow_inf_nan=False,
         gt=0.0,
         le=10_000.0,
     )
@@ -166,10 +167,16 @@ class ObjectiveSpec(StrictFrozenModel):
     maximum_drawdown: float = Field(
         default=-0.35,
         strict=True,
+        allow_inf_nan=False,
         ge=-1.0,
         le=0.0,
     )
-    maximum_turnover: float = Field(default=1.0, strict=True, ge=0.0)
+    maximum_turnover: float = Field(
+        default=1.0,
+        strict=True,
+        allow_inf_nan=False,
+        ge=0.0,
+    )
 
 
 class ResourceBudget(StrictFrozenModel):

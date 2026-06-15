@@ -1,5 +1,6 @@
 import hashlib
 import json
+from decimal import localcontext
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,73 @@ def test_semantically_equal_decimals_have_identical_canonical_artifacts(
         EXPECTED_BASELINE_CANONICAL_JSON
     }
     assert len({item.spec_sha256 for item in loaded}) == 1
+
+
+def test_decimal_canonicalization_is_independent_of_context_precision(
+    tmp_path: Path,
+) -> None:
+    precise_equity = "12345678901234567890.1234567890123456789000"
+    path = tmp_path / "high-precision.toml"
+    path.write_text(
+        BASELINE_TOML.replace(
+            'reference_equity = "1000000"',
+            f'reference_equity = "{precise_equity}"',
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = []
+    for precision in (10, 28, 50):
+        with localcontext() as context:
+            context.prec = precision
+            loaded.append(load_experiment_spec(path))
+
+    canonical_json = loaded[0].canonical_json
+    assert (
+        '"reference_equity":'
+        '"12345678901234567890.1234567890123456789"'
+        in canonical_json
+    )
+    assert len({item.canonical_json for item in loaded}) == 1
+    assert len({item.spec_sha256 for item in loaded}) == 1
+
+
+@pytest.mark.parametrize("non_finite", ("inf", "nan"))
+def test_loading_rejects_non_finite_objective_floats(
+    tmp_path: Path,
+    non_finite: str,
+) -> None:
+    path = tmp_path / f"{non_finite}.toml"
+    path.write_text(
+        BASELINE_TOML.replace(
+            "maximum_turnover = 1.0",
+            f"maximum_turnover = {non_finite}",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ExperimentSpecError, match="maximum_turnover"):
+        load_experiment_spec(path)
+
+
+def test_signed_zero_floats_have_identical_canonical_artifacts(
+    tmp_path: Path,
+) -> None:
+    loaded = []
+    for index, zero in enumerate(("0.0", "-0.0")):
+        path = tmp_path / f"zero-{index}.toml"
+        path.write_text(
+            BASELINE_TOML.replace(
+                "maximum_turnover = 1.0",
+                f"maximum_turnover = {zero}",
+            ),
+            encoding="utf-8",
+        )
+        loaded.append(load_experiment_spec(path))
+
+    assert '"maximum_turnover":0.0' in loaded[0].canonical_json
+    assert loaded[0].canonical_json == loaded[1].canonical_json
+    assert loaded[0].spec_sha256 == loaded[1].spec_sha256
 
 
 @pytest.mark.parametrize(
