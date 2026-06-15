@@ -177,6 +177,71 @@ def test_backtest_rejects_conflicting_legacy_cost() -> None:
         )
 
 
+def test_explicit_default_legacy_cost_conflicts_with_different_config() -> None:
+    with pytest.raises(ValueError, match="cost_bps"):
+        run_backtest(
+            _bars,
+            cost_bps=Decimal("5"),
+            config=BacktestConfig(cost_bps=Decimal("10")),
+        )
+
+
+def test_equal_legacy_and_config_costs_are_accepted() -> None:
+    config = BacktestConfig(cost_bps=Decimal("7"))
+
+    configured = run_backtest(_bars, config=config)
+    explicit_equal = run_backtest(
+        _bars,
+        cost_bps=Decimal("7"),
+        config=config,
+    )
+
+    assert explicit_equal == configured
+
+
+def test_legacy_cost_without_config_is_used() -> None:
+    legacy = run_backtest(_bars, cost_bps=Decimal("7"))
+    configured = run_backtest(
+        _bars,
+        config=BacktestConfig(cost_bps=Decimal("7")),
+    )
+
+    assert legacy == configured
+
+
+@pytest.mark.parametrize("value", (5, 5.0, "5"))
+def test_backtest_config_requires_strict_decimal_headline_cost(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="cost_bps"):
+        BacktestConfig(cost_bps=value)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("value", (5, 5.0, "5"))
+def test_backtest_config_requires_strict_decimal_sensitivity_costs(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="cost_sensitivity_bps"):
+        BacktestConfig(
+            cost_sensitivity_bps=(value,),  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("value", (5, 5.0, "5"))
+def test_legacy_cost_requires_strict_decimal(value: object) -> None:
+    with pytest.raises(ValidationError, match="cost_bps"):
+        run_backtest(_bars, cost_bps=value)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "value",
+    (Decimal("-0.01"), Decimal("100.01")),
+)
+def test_legacy_cost_rejects_out_of_range_decimal(value: Decimal) -> None:
+    with pytest.raises(ValidationError, match="cost_bps"):
+        run_backtest(_bars, cost_bps=value)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     (

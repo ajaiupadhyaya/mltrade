@@ -86,7 +86,10 @@ _DEFAULT_LIMITS = PortfolioLimits(
 
 _INITIAL_EQUITY = Decimal("1_000_000")
 _ROUND_PLACES = 10
-type _CostBps = Annotated[Decimal, Field(ge=0, le=100)]
+type _CostBps = Annotated[
+    Decimal,
+    Field(strict=True, ge=0, le=100),
+]
 
 
 def _to_validation_data(value: Any) -> Any:
@@ -516,7 +519,7 @@ def _compute_per_symbol_contribution(
 def run_backtest(
     bars: tuple[DailyBar, ...],
     *,
-    cost_bps: Decimal = Decimal("5"),
+    cost_bps: Decimal | None = None,
     config: BacktestConfig | None = None,
     limits: PortfolioLimits | None = None,
     initial_equity: Decimal = _INITIAL_EQUITY,
@@ -531,7 +534,8 @@ def run_backtest(
         session.
     cost_bps:
         Backward-compatible headline transaction cost in basis points.  A
-        non-default value must match ``config.cost_bps`` when both are given.
+        provided value must be a bounded ``Decimal`` and match
+        ``config.cost_bps`` when both are given.
     config:
         Forecast, cadence, transaction-cost, sensitivity, and evaluation-window
         boundaries.  Defaults preserve the original backtest behavior.
@@ -546,13 +550,14 @@ def run_backtest(
         Immutable result with headline metrics, cost sensitivity analysis,
         per-symbol contributions, and equal-weight / cash baselines.
     """
-    if config is None:
-        config = BacktestConfig(cost_bps=cost_bps)
-    elif (
-        cost_bps != Decimal("5")
-        and cost_bps != config.cost_bps
-    ):
-        raise ValueError("cost_bps conflicts with config.cost_bps")
+    if cost_bps is not None:
+        legacy_config = BacktestConfig(cost_bps=cost_bps)
+        if config is None:
+            config = legacy_config
+        elif legacy_config.cost_bps != config.cost_bps:
+            raise ValueError("cost_bps conflicts with config.cost_bps")
+    elif config is None:
+        config = BacktestConfig()
 
     if limits is None:
         limits = _DEFAULT_LIMITS

@@ -8,6 +8,7 @@ then exercise the research pipeline.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from mltrade.backtest import BacktestConfig
@@ -68,7 +69,7 @@ def test_run_research_uses_one_forecast_config_throughout(tmp_path: Path) -> Non
     )
     config = BacktestConfig(
         forecast=RidgeForecastConfig(alpha=100.0, fit_intercept=False),
-        cost_sensitivity_bps=(1, 3),
+        cost_sensitivity_bps=(Decimal("1"), Decimal("3")),
         evaluation_window_sessions=126,
     )
 
