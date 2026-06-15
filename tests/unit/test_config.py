@@ -73,6 +73,35 @@ def test_model_copy_recomputes_derived_experiment_root(tmp_path: Path) -> None:
     assert copied.experiment_root == (tmp_path / "copied" / "experiments").resolve()
 
 
+def test_model_copy_preserves_explicit_experiment_root(tmp_path: Path) -> None:
+    experiment_root = tmp_path / "custom"
+    settings = Settings(
+        data_root=tmp_path / "original",
+        experiment_root=experiment_root,
+    )
+
+    copied = settings.model_copy(update={"data_root": tmp_path / "copied"})
+
+    assert copied.data_root == (tmp_path / "copied").resolve()
+    assert copied.experiment_root == experiment_root.resolve()
+
+
+def test_model_copy_honors_explicit_none_experiment_root(tmp_path: Path) -> None:
+    settings = Settings(
+        data_root=tmp_path / "original",
+        experiment_root=tmp_path / "custom",
+    )
+
+    copied = settings.model_copy(
+        update={
+            "data_root": tmp_path / "copied",
+            "experiment_root": None,
+        }
+    )
+
+    assert copied.experiment_root == (tmp_path / "copied" / "experiments").resolve()
+
+
 def test_model_copy_normalizes_explicit_experiment_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

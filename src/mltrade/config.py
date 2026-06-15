@@ -111,7 +111,9 @@ class Settings(BaseSettings):
         }
         changes = dict(update or {})
         if "data_root" in changes and "experiment_root" not in changes:
-            payload["experiment_root"] = None
+            derived_experiment_root = (self.data_root / "experiments").resolve()
+            if self.experiment_root == derived_experiment_root:
+                payload["experiment_root"] = None
         payload.update(changes)
         return type(self).model_validate(payload)
 
