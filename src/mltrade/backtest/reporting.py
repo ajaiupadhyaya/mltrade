@@ -19,6 +19,7 @@ Metric definitions
 from __future__ import annotations
 
 import math
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -59,6 +60,23 @@ class CostSummary(BaseModel):
     hit_rate: float
 
 
+class EvaluationWindow(BaseModel):
+    """Metrics for one non-overlapping execution-session window."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start_session: date
+    end_session: date
+    sessions: int
+    annualized_return: float
+    annualized_volatility: float
+    sharpe: float
+    max_drawdown: float
+    total_costs: float
+    turnover: float
+    hit_rate: float
+
+
 class BacktestResult(BaseModel):
     """Immutable backtest result with headline metrics and cost sensitivity.
 
@@ -81,6 +99,7 @@ class BacktestResult(BaseModel):
     per_symbol_contribution: dict[str, float]
     equal_weight_return: float
     cash_return: float
+    evaluation_windows: tuple[EvaluationWindow, ...] = ()
 
 
 def compute_metrics(
@@ -178,3 +197,58 @@ def compute_metrics(
         turnover=_round(avg_turnover),
         hit_rate=_round(hit_rate),
     )
+
+
+def compute_evaluation_windows(
+    *,
+    equity_curve: list[float],
+    cost_vals: list[float],
+    turnover_vals: list[float],
+    hit_flags: list[bool],
+    execution_sessions: list[date],
+    cost_bps: Decimal,
+    window_sessions: int,
+) -> tuple[EvaluationWindow, ...]:
+    """Compute consecutive, non-overlapping headline evaluation windows."""
+    period_count = len(equity_curve) - 1
+    if not (
+        len(cost_vals)
+        == len(turnover_vals)
+        == len(hit_flags)
+        == len(execution_sessions)
+        == period_count
+    ):
+        raise ValueError("evaluation-window inputs must be period-aligned")
+
+    windows: list[EvaluationWindow] = []
+    start = 0
+    while start < period_count:
+        end = min(start + window_sessions, period_count)
+        sessions = end - start
+        if sessions < 63:
+            break
+
+        summary = compute_metrics(
+            equity_curve[start : end + 1],
+            sum(cost_vals[start:end]),
+            turnover_vals[start:end],
+            hit_flags[start:end],
+            cost_bps,
+        )
+        windows.append(
+            EvaluationWindow(
+                start_session=execution_sessions[start],
+                end_session=execution_sessions[end - 1],
+                sessions=sessions,
+                annualized_return=summary.annualized_return,
+                annualized_volatility=summary.annualized_volatility,
+                sharpe=summary.sharpe,
+                max_drawdown=summary.max_drawdown,
+                total_costs=summary.total_costs,
+                turnover=summary.turnover,
+                hit_rate=summary.hit_rate,
+            )
+        )
+        start = end
+
+    return tuple(windows)

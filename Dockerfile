@@ -20,6 +20,7 @@ WORKDIR /app
 # Install uv and sync runtime dependencies (no dev extras).
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+COPY experiments ./experiments
 
 RUN pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev

@@ -1,9 +1,19 @@
-# MLTrade Paper-Trading MVP — Progress & Handoff
+# MLTrade — Progress & Handoff
 
-_Last updated: 2026-06-14. Branch: `codex/paper-trading-mvp` (worktree
-`.worktrees/paper-trading-mvp`). Not yet merged to `main`._
+_Last updated: 2026-06-15._
 
-## Status: ALL 18 TASKS IMPLEMENTED + REVIEWED
+## Paper-trading MVP: MERGED to `main`
+
+The end-to-end paper-trading MVP (18 tasks) is complete and **merged to
+`main`**. The active phase is the **local research experiment platform** (TOML
+specs, content-addressed run records, MLflow tracking, resumable Optuna tuning,
+run comparison, and the `mltrade experiment` CLI), built on
+`codex/research-experiment-platform` and ready to merge: full quality gate green
+(ruff + strict mypy clean, branch coverage ≥90%), `mltrade experiment doctor`
+and an end-to-end run + 2-trial tune verified. See
+`docs/runbooks/research-experiments.md`.
+
+## Paper MVP status: ALL 18 TASKS IMPLEMENTED + REVIEWED
 
 The full vertical slice from the approved plan
 (`docs/superpowers/plans/2026-06-13-end-to-end-paper-trading-mvp.md`) is built,

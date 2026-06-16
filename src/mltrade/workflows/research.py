@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from mltrade.backtest.engine import run_backtest
+from mltrade.backtest.engine import BacktestConfig, run_backtest
 from mltrade.backtest.reporting import BacktestResult
 from mltrade.config import Settings
 from mltrade.data.publication import DailyBarPublisher
@@ -51,6 +51,8 @@ def _build_limits(settings: Settings) -> PortfolioLimits:
 def run_research(
     settings: Settings,
     manifest: DatasetManifest,
+    *,
+    backtest_config: BacktestConfig | None = None,
 ) -> ResearchResult:
     """Run the research pipeline on an existing verified snapshot.
 
@@ -62,6 +64,9 @@ def run_research(
         The :class:`~mltrade.storage.manifests.DatasetManifest` describing the
         snapshot to load.  Must have been previously written by
         :class:`~mltrade.data.publication.DailyBarPublisher`.
+    backtest_config:
+        Optional experiment boundaries shared by the backtest and final
+        forecast batch.
 
     Returns
     -------
@@ -94,10 +99,23 @@ def run_research(
     feature_rows = build_feature_rows(bars, manifest.snapshot_id)
 
     # Backtest
-    backtest = run_backtest(bars, limits=limits)
+    backtest = run_backtest(
+        bars,
+        limits=limits,
+        config=backtest_config,
+    )
 
     # Forecast batch
-    forecast_batch = generate_forecast_batch(feature_rows, decision_session)
+    forecast_config = (
+        backtest_config.forecast
+        if backtest_config is not None
+        else None
+    )
+    forecast_batch = generate_forecast_batch(
+        feature_rows,
+        decision_session,
+        config=forecast_config,
+    )
 
     # Portfolio target
     forecasts_map: dict[str, float] = {

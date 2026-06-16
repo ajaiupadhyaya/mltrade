@@ -8,9 +8,16 @@ then exercise the research pipeline.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
+from mltrade.backtest import BacktestConfig, run_backtest
 from mltrade.config import Environment, Settings
+from mltrade.data.publication import DailyBarPublisher
+from mltrade.features.pipeline import build_feature_rows
+from mltrade.models import RidgeForecastConfig
+from mltrade.models.walk_forward import generate_forecast_batch
+from mltrade.portfolio.targets import PortfolioLimits
 from mltrade.storage.snapshots import SnapshotStore
 from mltrade.workflows.demo import run_demo
 from mltrade.workflows.research import run_research
@@ -56,3 +63,37 @@ def test_run_research_is_deterministic(tmp_path: Path) -> None:
 
     assert first.backtest == second.backtest
     assert first.target == second.target
+
+
+def test_run_research_uses_one_forecast_config_throughout(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    demo = run_demo(settings, clock=_CLOCK)
+    manifest = SnapshotStore(settings.data_root).load_manifest(
+        "daily_bars", demo.snapshot_id
+    )
+    config = BacktestConfig(
+        forecast=RidgeForecastConfig(alpha=100.0, fit_intercept=False),
+        retrain_every_sessions=7,
+        cost_sensitivity_bps=(Decimal("1"), Decimal("3")),
+        evaluation_window_sessions=126,
+    )
+
+    configured = run_research(settings, manifest, backtest_config=config)
+    bars = DailyBarPublisher(SnapshotStore(settings.data_root)).load_verified(
+        manifest
+    )
+    limits = PortfolioLimits(
+        maximum_position_weight=settings.maximum_position_weight,
+        minimum_cash_weight=settings.minimum_cash_weight,
+        target_annual_volatility=settings.target_annual_volatility,
+    )
+    direct_backtest = run_backtest(bars, limits=limits, config=config)
+    feature_rows = build_feature_rows(bars, manifest.snapshot_id)
+    direct_forecast = generate_forecast_batch(
+        feature_rows,
+        configured.forecast_batch.decision_session,
+        config=config.forecast,
+    )
+
+    assert configured.backtest == direct_backtest
+    assert configured.forecast_batch == direct_forecast

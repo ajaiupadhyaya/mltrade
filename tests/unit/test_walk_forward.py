@@ -36,6 +36,7 @@ from mltrade.data.fixtures import DeterministicBarSource
 from mltrade.features import FeatureRow, build_feature_rows
 from mltrade.models import (
     ForecastBlocked,
+    RidgeForecastConfig,
     build_training_split,
     generate_forecast_batch,
 )
@@ -387,6 +388,174 @@ def test_determinism_per_forecast_values() -> None:
     b1_map = {f.symbol: f.predicted_forward_return for f in batch1.forecasts}
     b2_map = {f.symbol: f.predicted_forward_return for f in batch2.forecasts}
     assert b1_map == b2_map
+
+
+def test_ridge_config_defaults_preserve_existing_behavior() -> None:
+    default_batch = generate_forecast_batch(_feature_rows, _DECISION_SESSION)
+    explicit_batch = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(),
+    )
+    assert explicit_batch == default_batch
+
+
+def test_alpha_changes_forecasts_but_remains_deterministic() -> None:
+    low = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(alpha=0.01),
+    )
+    high_config = RidgeForecastConfig(alpha=100.0)
+    high = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=high_config,
+    )
+
+    assert low != high
+    assert high == generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=high_config,
+    )
+
+
+def test_fit_intercept_changes_forecasts() -> None:
+    with_intercept = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(fit_intercept=True),
+    )
+    without_intercept = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(fit_intercept=False),
+    )
+
+    assert with_intercept != without_intercept
+
+
+def test_minimum_training_sessions_config_is_used() -> None:
+    short_bars = DeterministicBarSource(seed=42).fetch(
+        MVP_UNIVERSE,
+        date(2024, 1, 2),
+        _FIXTURE_END,
+        _INGESTED_AT,
+    )
+    short_rows = build_feature_rows(short_bars, "fixture-config-minimum")
+
+    with pytest.raises(ForecastBlocked, match="need >= 504"):
+        generate_forecast_batch(short_rows, _DECISION_SESSION)
+
+    configured = generate_forecast_batch(
+        short_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(minimum_training_sessions=1),
+    )
+    assert configured.training_session_count >= 1
+
+
+def test_config_embargo_sessions_are_used() -> None:
+    config = RidgeForecastConfig(embargo_sessions=42)
+    batch = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=config,
+    )
+    split = build_training_split(
+        _feature_rows,
+        decision_session=_DECISION_SESSION,
+        embargo_sessions=42,
+    )
+
+    assert batch.embargo_start == split.embargo_start
+    assert batch.training_row_count == len(split.training)
+
+
+def test_legacy_embargo_keyword_remains_supported() -> None:
+    legacy = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        embargo_sessions=42,
+    )
+    configured = generate_forecast_batch(
+        _feature_rows,
+        _DECISION_SESSION,
+        config=RidgeForecastConfig(embargo_sessions=42),
+    )
+    assert legacy == configured
+
+
+def test_conflicting_config_and_legacy_embargo_rejected() -> None:
+    with pytest.raises(ValueError, match="embargo_sessions"):
+        generate_forecast_batch(
+            _feature_rows,
+            _DECISION_SESSION,
+            config=RidgeForecastConfig(embargo_sessions=42),
+            embargo_sessions=21,
+        )
+
+
+@pytest.mark.parametrize("value", (21.0, True, "21"))
+def test_legacy_embargo_requires_strict_int_without_config(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="embargo_sessions"):
+        generate_forecast_batch(
+            _feature_rows,
+            _DECISION_SESSION,
+            embargo_sessions=value,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize("value", (21.0, True, "21"))
+def test_legacy_embargo_requires_strict_int_with_equal_config(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="embargo_sessions"):
+        generate_forecast_batch(
+            _feature_rows,
+            _DECISION_SESSION,
+            config=RidgeForecastConfig(embargo_sessions=21),
+            embargo_sessions=value,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("alpha", 0.0),
+        ("alpha", -1.0),
+        ("alpha", float("inf")),
+        ("alpha", float("nan")),
+        ("minimum_training_sessions", 0),
+        ("embargo_sessions", 0),
+        ("alpha", "1.0"),
+        ("fit_intercept", 1),
+        ("minimum_training_sessions", True),
+        ("embargo_sessions", 1.0),
+    ),
+)
+def test_ridge_config_rejects_invalid_values(field: str, value: object) -> None:
+    with pytest.raises(ValidationError, match=field):
+        RidgeForecastConfig.model_validate({field: value})
+
+
+def test_ridge_config_copy_updates_revalidate() -> None:
+    config = RidgeForecastConfig()
+
+    assert config.model_copy(update={"alpha": 2.0}).alpha == 2.0
+    with pytest.raises(ValidationError, match="alpha"):
+        config.model_copy(update={"alpha": 0.0})
+    with pytest.warns(DeprecationWarning):
+        with pytest.raises(ValidationError, match="minimum_training_sessions"):
+            config.copy(update={"minimum_training_sessions": 0})
+
+
+def test_ridge_config_forbids_extra_fields() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        RidgeForecastConfig.model_validate({"solver": "auto"})
 
 
 # ---------------------------------------------------------------------------

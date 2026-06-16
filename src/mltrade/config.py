@@ -1,6 +1,9 @@
+from collections.abc import Mapping
+from copy import deepcopy
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from typing import Any, Self
 
 from pydantic import (
     Field,
@@ -22,6 +25,7 @@ class Environment(StrEnum):
 class Settings(BaseSettings):
     environment: Environment = Environment.LOCAL
     data_root: Path = Path("data")
+    experiment_root: Path | None = None
     database_url: str = Field(
         default="sqlite+pysqlite:///data/operations.db",
         repr=False,
@@ -51,6 +55,13 @@ class Settings(BaseSettings):
     @classmethod
     def make_data_root_absolute(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @field_validator("experiment_root", mode="before")
+    @classmethod
+    def normalize_blank_experiment_root(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
 
     @field_validator("log_level")
     @classmethod
@@ -82,4 +93,36 @@ class Settings(BaseSettings):
             raise ValueError(
                 "maximum_position_weight cannot exceed 1 - minimum_cash_weight"
             )
+        if self.experiment_root is None:
+            self.experiment_root = self.data_root / "experiments"
+        else:
+            self.experiment_root = self.experiment_root.expanduser().resolve()
         return self
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        payload = {
+            name: deepcopy(getattr(self, name)) if deep else getattr(self, name)
+            for name in type(self).model_fields
+        }
+        changes = dict(update or {})
+        if "data_root" in changes and "experiment_root" not in changes:
+            derived_experiment_root = (self.data_root / "experiments").resolve()
+            if self.experiment_root == derived_experiment_root:
+                payload["experiment_root"] = None
+        payload.update(changes)
+        return type(self).model_validate(payload)
+
+    @property
+    def mlflow_tracking_root(self) -> Path:
+        assert self.experiment_root is not None
+        return self.experiment_root / "mlflow"
+
+    @property
+    def optuna_storage_path(self) -> Path:
+        assert self.experiment_root is not None
+        return self.experiment_root / "optuna" / "studies.db"

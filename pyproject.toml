@@ -13,7 +13,9 @@ dependencies = [
   "duckdb>=1.2",
   "exchange-calendars>=4.8",
   "httpx>=0.28",
+  "mlflow>=3.1,<4",
   "numpy>=2.2",
+  "optuna>=4.4,<5",
   "pandas>=2.2",
   "polars>=1.26",
   "psycopg[binary]>=3.2",
@@ -56,6 +58,11 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer reads CLI parameter metadata from call defaults; this is the framework
+# idiom, not the B008 mutable-default footgun.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.mypy]
 python_version = "3.13"

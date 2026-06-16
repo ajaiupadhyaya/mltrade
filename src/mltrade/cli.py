@@ -44,12 +44,17 @@ demo_app = typer.Typer(no_args_is_help=True, help="Offline demo pipeline.")
 research_app = typer.Typer(no_args_is_help=True, help="Research pipeline.")
 portfolio_app = typer.Typer(no_args_is_help=True, help="Portfolio optimisation.")
 paper_app = typer.Typer(no_args_is_help=True, help="Paper-trading commands.")
+experiment_app = typer.Typer(
+    no_args_is_help=True,
+    help="Run, tune, inspect, and compare reproducible research experiments.",
+)
 
 app.add_typer(data_app, name="data")
 app.add_typer(demo_app, name="demo")
 app.add_typer(research_app, name="research")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(paper_app, name="paper")
+app.add_typer(experiment_app, name="experiment")
 
 
 # ---------------------------------------------------------------------------
@@ -517,3 +522,354 @@ def paper_reconcile() -> None:
         typer.echo("reconciliation: blocked", err=True)
         raise typer.Exit(1)
     typer.echo("reconciliation: pass")
+
+
+# ---------------------------------------------------------------------------
+# experiment — reproducible research experiment registry
+# ---------------------------------------------------------------------------
+
+
+def _run_store(settings: Settings):  # type: ignore[no-untyped-def]
+    from mltrade.experiments.storage import RunStore
+
+    root = settings.experiment_root
+    assert root is not None
+    return RunStore(root)
+
+
+def _load_spec_or_exit(spec_path: Path):  # type: ignore[no-untyped-def]
+    from mltrade.experiments.loading import (
+        ExperimentSpecError,
+        load_experiment_spec,
+    )
+
+    try:
+        return load_experiment_spec(spec_path)
+    except ExperimentSpecError as exc:
+        typer.echo(f"spec: invalid ({exc})", err=True)
+        raise typer.Exit(1) from exc
+
+
+@experiment_app.command("init")
+def experiment_init(
+    directory: Path = typer.Argument(Path("experiments")),
+    snapshot_id: str = typer.Option(None, "--snapshot-id"),
+) -> None:
+    """Write the packaged example specs (without overwriting)."""
+    from mltrade.experiments.examples import write_example_specs
+
+    written = write_example_specs(directory, snapshot_id=snapshot_id)
+    if not written:
+        typer.echo("no files written (examples already exist)")
+        return
+    for path in written:
+        typer.echo(f"wrote: {path}")
+
+
+@experiment_app.command("validate")
+def experiment_validate(spec_path: Path = typer.Argument(...)) -> None:
+    """Parse a spec and verify its immutable snapshot context."""
+    from mltrade.storage.snapshots import SnapshotStore
+
+    settings = _get_settings()
+    loaded = _load_spec_or_exit(spec_path)
+    typer.echo("spec: valid")
+    typer.echo(f"spec sha256: {loaded.spec_sha256}")
+
+    snapshots = SnapshotStore(settings.data_root)
+    try:
+        manifest = snapshots.load_manifest(
+            loaded.spec.dataset.name, loaded.spec.dataset.snapshot_id
+        )
+    except (ValueError, OSError):
+        typer.echo(f"snapshot: unavailable ({loaded.spec.dataset.snapshot_id})")
+        raise typer.Exit(1) from None
+
+    manifest_universe = manifest.metadata.get("universe_version")
+    if manifest_universe != loaded.spec.dataset.universe_version:
+        typer.echo("snapshot: context mismatch (universe_version)", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"snapshot: {manifest.snapshot_id}")
+
+
+@experiment_app.command("run")
+def experiment_run(
+    spec_path: Path = typer.Argument(...),
+    track: bool = typer.Option(False, "--track"),
+) -> None:
+    """Run a single experiment and persist its canonical record + reports."""
+    from mltrade.experiments.runner import (
+        ExperimentBlocked,
+        ExperimentFailed,
+        ExperimentRunner,
+        ExperimentTrackingError,
+    )
+    from mltrade.experiments.tracking import MlflowRunTracker, NullRunTracker
+
+    settings = _get_settings()
+    _ensure_db_dir(settings)
+    loaded = _load_spec_or_exit(spec_path)
+    tracker = (
+        MlflowRunTracker(settings.mlflow_tracking_root) if track else NullRunTracker()
+    )
+    runner = ExperimentRunner(settings=settings, tracker=tracker)
+    try:
+        result = runner.run(loaded)
+    except (ExperimentBlocked, ExperimentFailed) as exc:
+        typer.echo(f"experiment failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except ExperimentTrackingError as exc:
+        typer.echo(f"tracking degraded for run {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"run id: {result.record.run_id}")
+    typer.echo(f"status: {result.record.status}")
+    typer.echo(f"report: {result.report_markdown}")
+
+
+@experiment_app.command("list")
+def experiment_list(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List stored runs, newest finished first."""
+    import json
+
+    settings = _get_settings()
+    records = _run_store(settings).list_records()
+    records.sort(key=lambda record: record.finished_at, reverse=True)
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "run_id": record.run_id,
+                        "status": record.status,
+                        "robust_sharpe": (
+                            record.metrics.robust_sharpe if record.metrics else None
+                        ),
+                    }
+                    for record in records
+                ],
+                indent=2,
+            )
+        )
+        return
+    if not records:
+        typer.echo("no runs found")
+        return
+    for record in records:
+        robust = (
+            f"{record.metrics.robust_sharpe:.4f}" if record.metrics else "n/a"
+        )
+        typer.echo(f"{record.run_id}  {record.status:<8}  robust={robust}")
+
+
+@experiment_app.command("inspect")
+def experiment_inspect(
+    run_id: str = typer.Argument(...),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Show a run summary, or its canonical JSON with --json."""
+    from mltrade.experiments.storage import RunStorageError
+
+    settings = _get_settings()
+    try:
+        record = _run_store(settings).load(run_id)
+    except (RunStorageError, OSError, ValueError) as exc:
+        typer.echo(f"run not found: {run_id}", err=True)
+        raise typer.Exit(1) from exc
+    if as_json:
+        typer.echo(record.model_dump_json(indent=2))
+        return
+    typer.echo(f"run id:       {record.run_id}")
+    typer.echo(f"experiment:   {record.experiment_name}")
+    typer.echo(f"status:       {record.status}")
+    typer.echo(f"snapshot:     {record.dataset_snapshot_id}")
+    typer.echo(f"dirty:        {record.provenance.git_dirty}")
+    if record.metrics is not None:
+        typer.echo(f"robust sharpe: {record.metrics.robust_sharpe:.4f}")
+        typer.echo(f"max drawdown:  {record.metrics.max_drawdown:.4f}")
+    if record.failure is not None:
+        typer.echo(f"failure:      {record.failure.category}: {record.failure.message}")
+
+
+@experiment_app.command("compare")
+def experiment_compare(
+    run_ids: list[str] = typer.Argument(...),
+    include_dirty: bool = typer.Option(False, "--include-dirty"),
+) -> None:
+    """Rank compatible runs; exit nonzero when runs are incompatible."""
+    from mltrade.experiments.comparison import compare_runs
+    from mltrade.experiments.storage import RunStorageError
+
+    settings = _get_settings()
+    store = _run_store(settings)
+    try:
+        records = tuple(store.load(run_id) for run_id in run_ids)
+    except (RunStorageError, OSError, ValueError) as exc:
+        typer.echo(f"run not found: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    result = compare_runs(records, include_dirty=include_dirty)
+    if not result.compatible:
+        typer.echo("runs are incompatible — no winner:")
+        for field, values in result.differences.items():
+            typer.echo(f"  {field}: {values}")
+        raise typer.Exit(1)
+    for ranked in result.ranking:
+        typer.echo(
+            f"#{ranked.rank} {ranked.run_id}  robust={ranked.robust_sharpe:.4f}"
+        )
+    if result.excluded_run_ids:
+        typer.echo(f"excluded: {', '.join(result.excluded_run_ids)}")
+
+
+@experiment_app.command("report")
+def experiment_report(run_id: str = typer.Argument(...)) -> None:
+    """Regenerate report.json from the canonical record."""
+    from mltrade.experiments.reporting import build_report_json
+    from mltrade.experiments.storage import RunStorageError
+
+    settings = _get_settings()
+    store = _run_store(settings)
+    try:
+        record = store.load(run_id)
+    except (RunStorageError, OSError, ValueError) as exc:
+        typer.echo(f"run not found: {run_id}", err=True)
+        raise typer.Exit(1) from exc
+    run_dir = store.run_directory(run_id)
+    (run_dir / "report.json").write_text(build_report_json(record), encoding="utf-8")
+    typer.echo(f"run dir: {run_dir}")
+    typer.echo(f"report: {run_dir / 'report.md'}")
+
+
+@experiment_app.command("tune")
+def experiment_tune(
+    spec_path: Path = typer.Argument(...),
+    trials: int = typer.Option(None, "--trials"),
+    timeout_minutes: int = typer.Option(None, "--timeout-minutes"),
+    study: str = typer.Option(None, "--study"),
+    track: bool = typer.Option(False, "--track"),
+) -> None:
+    """Tune an experiment via a persistent Optuna study."""
+    from mltrade.experiments.loading import loaded_from_spec
+    from mltrade.experiments.runner import ExperimentRunner
+    from mltrade.experiments.tracking import MlflowRunTracker, NullRunTracker
+    from mltrade.experiments.tuning import OptunaTuner, StudyContextMismatch
+
+    settings = _get_settings()
+    _ensure_db_dir(settings)
+    loaded = _load_spec_or_exit(spec_path)
+    if loaded.spec.search is None:
+        typer.echo("tune requires a [search] space in the spec", err=True)
+        raise typer.Exit(1)
+
+    spec = loaded.spec
+    if timeout_minutes is not None:
+        spec = spec.model_copy(
+            update={
+                "resources": spec.resources.model_copy(
+                    update={"timeout_minutes": timeout_minutes}
+                )
+            }
+        )
+        loaded = loaded_from_spec(spec, path=loaded.path)
+
+    tracker = (
+        MlflowRunTracker(settings.mlflow_tracking_root) if track else NullRunTracker()
+    )
+    runner = ExperimentRunner(settings=settings, tracker=tracker)
+    tuner = OptunaTuner(storage_path=settings.optuna_storage_path, runner=runner)
+    n_trials = trials if trials is not None else spec.resources.max_trials
+    study_name = study or spec.name
+    try:
+        result = tuner.tune(loaded, study_name=study_name, n_trials=n_trials)
+    except StudyContextMismatch as exc:
+        typer.echo(f"study context mismatch: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"study: {result.study_name}")
+    typer.echo(
+        f"trials: {result.completed_trials} complete, "
+        f"{result.pruned_trials} pruned, {result.failed_trials} failed"
+    )
+    typer.echo(f"best run id: {result.best_run_id}")
+    typer.echo(f"best robust sharpe: {result.best_value}")
+
+
+@experiment_app.command("resume")
+def experiment_resume(
+    study: str = typer.Argument(...),
+    spec_path: Path = typer.Option(..., "--spec"),
+    trials: int = typer.Option(1, "--trials"),
+    track: bool = typer.Option(False, "--track"),
+) -> None:
+    """Resume an existing study with its original spec."""
+    from mltrade.experiments.runner import ExperimentRunner
+    from mltrade.experiments.tracking import MlflowRunTracker, NullRunTracker
+    from mltrade.experiments.tuning import OptunaTuner, StudyContextMismatch
+
+    settings = _get_settings()
+    _ensure_db_dir(settings)
+    loaded = _load_spec_or_exit(spec_path)
+    if loaded.spec.search is None:
+        typer.echo("resume requires a [search] space in the spec", err=True)
+        raise typer.Exit(1)
+    tracker = (
+        MlflowRunTracker(settings.mlflow_tracking_root) if track else NullRunTracker()
+    )
+    runner = ExperimentRunner(settings=settings, tracker=tracker)
+    tuner = OptunaTuner(storage_path=settings.optuna_storage_path, runner=runner)
+    try:
+        result = tuner.tune(loaded, study_name=study, n_trials=trials)
+    except StudyContextMismatch as exc:
+        typer.echo(f"study context mismatch: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"study: {result.study_name}")
+    typer.echo(f"trials: {result.completed_trials} complete")
+    typer.echo(f"best run id: {result.best_run_id}")
+
+
+@experiment_app.command("doctor")
+def experiment_doctor() -> None:
+    """Check experiment directories, dependencies, and example snapshot."""
+    from mltrade.storage.snapshots import SnapshotStore
+
+    settings = _get_settings()
+    ok = True
+
+    try:
+        import mlflow
+        import optuna
+
+        typer.echo(f"mlflow: ok ({mlflow.__version__})")
+        typer.echo(f"optuna: ok ({optuna.__version__})")
+    except ImportError as exc:
+        typer.echo(f"dependencies: MISSING ({exc})", err=True)
+        ok = False
+
+    root = settings.experiment_root
+    assert root is not None
+    try:
+        (root / "runs").mkdir(parents=True, exist_ok=True)
+        settings.optuna_storage_path.parent.mkdir(parents=True, exist_ok=True)
+        settings.mlflow_tracking_root.mkdir(parents=True, exist_ok=True)
+        typer.echo(f"experiment root: ok ({root})")
+        typer.echo(f"optuna storage: {settings.optuna_storage_path}")
+        typer.echo(f"mlflow uri: {settings.mlflow_tracking_root.resolve().as_uri()}")
+    except OSError as exc:
+        typer.echo(f"experiment directories: FAILED ({exc})", err=True)
+        ok = False
+
+    try:
+        manifest = SnapshotStore(settings.data_root).load_manifest(
+            "daily_bars", "fixture-2026-06-12"
+        )
+        typer.echo(f"example snapshot: available ({manifest.snapshot_id})")
+    except (ValueError, OSError):
+        typer.echo(
+            "example snapshot: not published (run `mltrade data ingest`)"
+        )
+
+    if not ok:
+        typer.echo("experiment doctor: failed", err=True)
+        raise typer.Exit(1)
+    typer.echo("experiment doctor: ok")
