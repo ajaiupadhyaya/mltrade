@@ -185,6 +185,26 @@ class ResourceBudget(StrictFrozenModel):
     worker_count: int = Field(default=1, strict=True, ge=1, le=2)
 
 
+class FloatSearchSpec(StrictFrozenModel):
+    low: float = Field(strict=True, allow_inf_nan=False)
+    high: float = Field(strict=True, allow_inf_nan=False)
+    log: StrictBool = False
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "FloatSearchSpec":
+        if self.low >= self.high:
+            raise ValueError("low must be less than high")
+        if self.log and self.low <= 0:
+            raise ValueError("log search requires low > 0")
+        return self
+
+
+class RidgeSearchSpace(StrictFrozenModel):
+    alpha: FloatSearchSpec = FloatSearchSpec(low=0.001, high=1000.0, log=True)
+    minimum_training_sessions: tuple[int, ...] = (504, 756, 1008)
+    retrain_every_sessions: tuple[int, ...] = (5, 10, 21, 42)
+
+
 class ExperimentSpec(StrictFrozenModel):
     schema_version: Literal[1] = 1
     name: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -196,6 +216,7 @@ class ExperimentSpec(StrictFrozenModel):
     portfolio: PortfolioSpec = PortfolioSpec()
     objective: ObjectiveSpec = ObjectiveSpec()
     resources: ResourceBudget = ResourceBudget()
+    search: RidgeSearchSpace | None = None
     seed: int = Field(default=42, strict=True, ge=0, le=2**32 - 1)
 
     @field_validator("schema_version", mode="before")

@@ -70,7 +70,7 @@ EXPECTED_BASELINE_CANONICAL_JSON = (
     '"minimum_cash_weight":"0.05","reference_equity":"1000000",'
     '"target_annual_volatility":"0.15"},'
     '"resources":{"max_trials":40,"timeout_minutes":60,"worker_count":1},'
-    '"schema_version":1,"seed":42,'
+    '"schema_version":1,"search":null,"seed":42,'
     '"validation":{"embargo_sessions":21,"minimum_training_sessions":504,'
     '"retrain_every_sessions":21}}\n'
 )

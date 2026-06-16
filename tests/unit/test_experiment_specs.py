@@ -69,6 +69,7 @@ def test_baseline_spec_defaults_match_the_versioned_contract() -> None:
             "timeout_minutes": 60,
             "worker_count": 1,
         },
+        "search": None,
         "seed": 42,
     }
 
