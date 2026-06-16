@@ -8,6 +8,13 @@ Built with Vite + React + TypeScript + Tailwind CSS v4. Hand-rolled SVG charts,
 no charting dependency. "Redwood" design system (warm 70s California forest
 palette) — the source design lives in `../design/` (Pencil + exported PNG).
 
+## Live
+
+Deployed (production): **https://mltrade-dashboard.vercel.app**
+
+Redeploy after regenerating the data: `mltrade export` (from the repo root),
+then `cd web && npx vercel deploy --prod --scope ajaiupadhyayas-projects`.
+
 ## Data
 
 The dashboard reads `public/data/dashboard.json`, produced by the platform CLI:
