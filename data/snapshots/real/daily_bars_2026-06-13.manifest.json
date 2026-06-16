@@ -1,0 +1,38 @@
+{
+  "dataset": "real_daily_bars",
+  "source": "yfinance (Yahoo Finance), auto_adjust=True",
+  "adjustment": "split+dividend (total-return adjusted)",
+  "as_of": "2026-06-13",
+  "fetched_at": "2026-06-16T05:00:57.245303+00:00",
+  "symbols": [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "EFA",
+    "EEM",
+    "TLT",
+    "IEF",
+    "GLD",
+    "DBC",
+    "VNQ"
+  ],
+  "benchmark": "SPY",
+  "start_session": "2007-01-03",
+  "end_session": "2026-06-12",
+  "session_count": 4892,
+  "row_count": 48920,
+  "rows_per_symbol": {
+    "SPY": 4892,
+    "QQQ": 4892,
+    "IWM": 4892,
+    "EFA": 4892,
+    "EEM": 4892,
+    "TLT": 4892,
+    "IEF": 4892,
+    "GLD": 4892,
+    "DBC": 4892,
+    "VNQ": 4892
+  },
+  "content_sha256": "253a662ca11aa3251384fefd572518e7f2c51b1fe98853dc3f537890e6014b45",
+  "panel_file": "daily_bars_2026-06-13.parquet"
+}

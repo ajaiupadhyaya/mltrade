@@ -1,18 +1,32 @@
-// Earthy per-instrument colors for allocation + contribution visuals.
+// Earthy per-instrument + per-asset-class colors for allocation visuals.
 export const TICKER_COLORS: Record<string, string> = {
-  SPY: "#2E4A3A",
-  TLT: "#9C4A2E",
-  EFA: "#CE9248",
-  VNQ: "#A8754C",
-  QQQ: "#3C5E48",
-  GLD: "#C8A24A",
-  EEM: "#BC5B3C",
-  DBC: "#7E8A5A",
-  IEF: "#6E8CA0",
-  IWM: "#8AA383",
-  cash: "#D8C7AD",
+  SPY: "#2e4a3a",
+  QQQ: "#3c5e48",
+  IWM: "#8aa383",
+  EFA: "#ce9248",
+  EEM: "#bc5b3c",
+  TLT: "#5f8198",
+  IEF: "#7fa0b4",
+  GLD: "#c8a24a",
+  DBC: "#7e8a5a",
+  VNQ: "#6d4a5b",
+  cash: "#d8c7ad",
 };
 
 export function tickerColor(symbol: string): string {
-  return TICKER_COLORS[symbol] ?? "#8AA383";
+  return TICKER_COLORS[symbol] ?? "#8aa383";
+}
+
+export const ASSET_CLASS_COLORS: Record<string, string> = {
+  "US Equity": "#2e4a3a",
+  "Intl Equity": "#5c7b58",
+  Rates: "#5f8198",
+  Gold: "#c8a24a",
+  Commodities: "#7e8a5a",
+  "Real Estate": "#6d4a5b",
+  Other: "#b6a98f",
+};
+
+export function classColor(name: string): string {
+  return ASSET_CLASS_COLORS[name] ?? "#b6a98f";
 }

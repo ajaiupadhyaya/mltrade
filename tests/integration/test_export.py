@@ -1,10 +1,18 @@
-"""Integration tests for the dashboard JSON export."""
+"""Integration tests for the dashboard JSON export (schema v2, real snapshot).
+
+``build_dashboard_payload`` runs the full real-data research pipeline off the
+committed frozen snapshot, which takes ~35s, so the heavy payload is built once
+in a module-scoped fixture and shared across assertions.
+"""
 
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from mltrade.config import Settings
 from mltrade.experiments import (
@@ -20,92 +28,85 @@ from mltrade.export import (
 )
 
 
+@pytest.fixture(scope="module")
+def payload() -> dict[str, Any]:
+    # Built once: the real-data research pipeline is expensive (~35s).
+    return build_dashboard_payload(Settings())
+
+
+def test_schema_and_meta(payload: dict[str, Any]) -> None:
+    assert payload["schema_version"] == 2
+
+    meta = payload["meta"]
+    assert meta["synthetic"] is False
+    assert meta["data_mode"] == "real-frozen-snapshot"
+    assert meta["live_trading_enabled"] is False
+    assert meta["platform"] == "MLTrade"
+    assert len(meta["universe"]) == 10
+
+
+def test_headline_has_institutional_kpis(payload: dict[str, Any]) -> None:
+    headline = payload["headline"]
+    for key in ("sharpe", "alpha_tstat", "deflated_sharpe_ratio", "pbo"):
+        assert key in headline
+
+
+def test_overfitting_block_bounded(payload: dict[str, Any]) -> None:
+    overfitting = payload["overfitting"]
+    assert overfitting is not None
+    assert 0.0 <= overfitting["pbo"] <= 1.0
+    assert 0.0 <= overfitting["deflated_sharpe_ratio"] <= 1.0
+
+
+def test_performance_equity_curve_shape(payload: dict[str, Any]) -> None:
+    curve = payload["performance"]["equity_curve"]
+    assert len(curve) > 0
+    for point in curve:
+        assert {"date", "strategy", "benchmark"} <= set(point)
+
+
+def test_risk_and_execution_blocks(payload: dict[str, Any]) -> None:
+    risk = payload["risk"]
+    summary = risk["summary"]
+    assert sum(summary.values()) == len(risk["checks"])
+
+    assert payload["execution"]["count"] == 10
+
+
+def test_attribution_has_five_exposures(payload: dict[str, Any]) -> None:
+    exposures = payload["attribution"]["exposures"]
+    assert len(exposures) == 5
+
+
+def test_payload_is_deterministic(payload: dict[str, Any]) -> None:
+    # The fixture build plus a fresh build must be byte-identical.
+    second = build_dashboard_payload(Settings())
+    assert json.dumps(payload, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_write_dashboard_json_trailing_newline(tmp_path: Path) -> None:
+    out = tmp_path / "nested" / "dashboard.json"
+    written = write_dashboard_json(Settings(), out)
+
+    assert written == out
+    text = out.read_text(encoding="utf-8")
+    assert text.endswith("\n")
+    parsed = json.loads(text)
+    assert parsed["schema_version"] == 2
+    assert parsed["meta"]["platform"] == "MLTrade"
+
+
+# ---------------------------------------------------------------------------
+# Experiment-leaderboard payload (fast; uses a throwaway registry).
+# ---------------------------------------------------------------------------
+
+
 def _settings(root: Path) -> Settings:
     root.mkdir(parents=True, exist_ok=True)
     return Settings(
         data_root=root,
         database_url=f"sqlite:///{root / 'operations.db'}",
     )
-
-
-def test_dashboard_payload_has_expected_shape(tmp_path: Path) -> None:
-    payload = build_dashboard_payload(_settings(tmp_path))
-
-    assert payload["schema_version"] == 1
-    assert set(payload) >= {
-        "meta",
-        "backtest",
-        "portfolio",
-        "risk",
-        "execution",
-        "quality",
-        "forecast",
-        "experiments",
-    }
-
-    meta = payload["meta"]
-    assert meta["snapshot_id"] == "fixture-2026-06-12"
-    assert meta["live_trading_enabled"] is False
-    assert meta["synthetic"] is True
-    assert len(meta["universe"]) == 10
-
-
-def test_backtest_block_carries_real_curve_and_metrics(tmp_path: Path) -> None:
-    bt = build_dashboard_payload(_settings(tmp_path))["backtest"]
-
-    # The engineered fixture produces a strongly positive Sharpe; assert a
-    # tolerant lower bound rather than a brittle exact value.
-    assert bt["sharpe"] > 1.5
-    assert bt["sessions"] >= 1300
-    assert len(bt["cost_sensitivity"]) == 3
-
-    curve = bt["equity_curve"]
-    assert len(curve) >= 2
-    assert all(set(point) == {"date", "equity"} for point in curve)
-    assert curve[0]["equity"] == 1_000_000.0
-    assert curve[-1]["equity"] > curve[0]["equity"]
-    # Dates are strictly increasing.
-    dates = [point["date"] for point in curve]
-    assert dates == sorted(dates)
-    assert len(set(dates)) == len(dates)
-
-
-def test_risk_execution_and_portfolio_blocks(tmp_path: Path) -> None:
-    payload = build_dashboard_payload(_settings(tmp_path))
-
-    execution = payload["execution"]
-    assert execution["count"] == 10
-    assert execution["preview_only"] is True
-
-    risk = payload["risk"]
-    # Steady-state caps gate two notional checks in the cold-start allocation.
-    assert risk["summary"]["block"] == 2
-    assert risk["blocked"] is True
-    assert len(risk["checks"]) == sum(risk["summary"].values())
-
-    portfolio = payload["portfolio"]
-    assert abs(portfolio["cash_weight"] + portfolio["invested_weight"] - 1.0) < 1e-6
-
-    # The platform ships before the experiment registry is merged on this branch.
-    assert payload["experiments"]["available"] is False
-
-
-def test_payload_is_deterministic(tmp_path: Path) -> None:
-    first = build_dashboard_payload(_settings(tmp_path / "first"))
-    second = build_dashboard_payload(_settings(tmp_path / "second"))
-    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
-
-
-def test_write_dashboard_json_creates_parents_and_trailing_newline(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "nested" / "dashboard.json"
-    written = write_dashboard_json(_settings(tmp_path / "data"), out)
-
-    assert written == out
-    text = out.read_text(encoding="utf-8")
-    assert text.endswith("\n")
-    assert json.loads(text)["meta"]["platform"] == "MLTrade"
 
 
 def _run_record(
@@ -167,11 +168,11 @@ def test_experiments_payload_ranks_real_registry_runs(tmp_path: Path) -> None:
     store.save(_run_record("run-b2", "complete", alpha=1.0, robust=1.7, sharpe=2.1))
     store.save(_run_record("run-c3", "blocked", alpha=56.0, robust=-9.0, sharpe=0.5))
 
-    payload = _experiments_payload(settings)
+    leaderboard = _experiments_payload(settings)
 
-    assert payload["available"] is True
-    ranked = [r for r in payload["runs"] if r["rank"] != "—"]
-    excluded = [r for r in payload["runs"] if r["rank"] == "—"]
+    assert leaderboard["available"] is True
+    ranked = [r for r in leaderboard["runs"] if r["rank"] != "—"]
+    excluded = [r for r in leaderboard["runs"] if r["rank"] == "—"]
 
     # Compatible complete runs ranked by descending robust Sharpe.
     assert [r["run_id"] for r in ranked] == ["run-a1", "run-b2"]
@@ -185,6 +186,6 @@ def test_experiments_payload_ranks_real_registry_runs(tmp_path: Path) -> None:
 
 
 def test_experiments_payload_empty_when_no_runs(tmp_path: Path) -> None:
-    payload = _experiments_payload(_settings(tmp_path))
-    assert payload["available"] is False
-    assert payload["runs"] == []
+    leaderboard = _experiments_payload(_settings(tmp_path))
+    assert leaderboard["available"] is False
+    assert leaderboard["runs"] == []

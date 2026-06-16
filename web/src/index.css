@@ -1,34 +1,47 @@
 @import "tailwindcss";
 
 /* ----------------------------------------------------------------------------
-   "Redwood" design tokens — warm 70s California forest palette.
-   Exposed as Tailwind v4 theme colors (bg-pine, text-ink, border-line, ...).
+   "Redwood" design tokens — a warm 70s California-forest palette tuned for a
+   dense, precise research terminal: parchment grounds, forest/pine ink accents,
+   clay/ochre for the benchmark and warnings.  Restrained, typeset, exact.
 ---------------------------------------------------------------------------- */
 @theme {
-  --color-canvas: #ece3d2;
-  --color-canvas-deep: #e4d9c3;
-  --color-surface: #fbf7ef;
-  --color-surface-2: #f5eee0;
-  --color-sunk: #e7dcc8;
+  --color-canvas: #e9dfca;
+  --color-canvas-deep: #e1d4ba;
+  --color-surface: #fbf8f1;
+  --color-surface-2: #f4ecdd;
+  --color-sunk: #e7dcc7;
+  --color-raise: #fffdf8;
 
-  --color-ink: #2c2620;
-  --color-ink-soft: #6b5f4e;
-  --color-ink-faint: #9c8f78;
+  --color-ink: #2a241d;
+  --color-ink-soft: #685c49;
+  --color-ink-faint: #9a8c74;
+  --color-ink-ghost: #b6a98f;
 
-  --color-line: #d8c7ad;
-  --color-line-soft: #e5d9c2;
+  --color-line: #d7c6aa;
+  --color-line-soft: #e6dac3;
+  --color-grid: #ddd0b6;
 
-  --color-pine: #2e4a3a;
-  --color-forest: #3c5e48;
+  --color-pine: #29463a;
+  --color-forest: #3a5a47;
+  --color-moss: #5c7b58;
   --color-sage: #8aa383;
   --color-sage-soft: #bccbb0;
 
-  --color-clay: #bc5b3c;
-  --color-clay-soft: #e0a689;
-  --color-ochre: #ce9248;
-  --color-ochre-soft: #e4c088;
-  --color-redwood: #9c4a2e;
-  --color-sky: #6e8ca0;
+  --color-clay: #b9542f;
+  --color-clay-soft: #e0a081;
+  --color-ochre: #c98a3c;
+  --color-ochre-soft: #e4bd80;
+  --color-redwood: #97402a;
+  --color-gold: #b88a2e;
+  --color-sky: #5f8198;
+  --color-plum: #6d4a5b;
+
+  /* Semantic */
+  --color-strategy: #3a5a47;
+  --color-benchmark: #c07a3a;
+  --color-positive: #3a5a47;
+  --color-negative: #a8472c;
 
   --font-display: "Fraunces", Georgia, serif;
   --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
@@ -47,7 +60,24 @@ body {
   font-family: var(--font-ui);
 }
 
-/* Tabular figures everywhere numbers matter (set per-element via font-mono). */
+/* Tabular figures everywhere numbers are compared (paired with font-mono). */
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* Fine top hairline used on section dividers and the parchment "paper" feel. */
+.paper {
+  background-image:
+    linear-gradient(var(--color-surface), var(--color-surface));
+  box-shadow: 0 1px 0 0 var(--color-raise) inset;
+}
+
+::selection {
+  background: var(--color-sage-soft);
+}
+
+/* Slim, warm scrollbars to match the terminal. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
 }

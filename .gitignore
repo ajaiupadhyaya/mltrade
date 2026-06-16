@@ -13,12 +13,17 @@ htmlcov/
 dist/
 build/
 *.egg-info/
-data/
+# Anchored to the repo root so it only excludes the runtime `data/` directory,
+# not source packages like `src/mltrade/data/`.
+/data/
 artifacts/
 mlruns/
 *.db
 
-# The dashboard's exported JSON is a committed, deterministic fixture-derived
-# artifact (regenerate with `mltrade export`), not runtime state. Re-include it
-# even though the generic `data/` rule above would otherwise exclude it.
+# The dashboard's exported JSON is a committed, deterministic artifact
+# (regenerate with `mltrade export`), not runtime state.
 !web/public/data/
+
+# The frozen, point-in-time real-market-data research snapshot is committed
+# (small, provenance-stamped, deterministic) so results are reproducible offline.
+# Tracked explicitly via `git add -f`; see data/snapshots/real/.

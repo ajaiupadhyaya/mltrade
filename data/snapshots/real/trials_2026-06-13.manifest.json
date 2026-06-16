@@ -1,0 +1,25 @@
+{
+  "dataset": "overfitting_trials",
+  "as_of": "2026-06-13",
+  "computed_at": "2026-06-16T05:04:04.180273+00:00",
+  "tuned_parameter": "model.alpha (ridge regularisation)",
+  "alpha_grid": [
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    4.0,
+    8.0,
+    16.0,
+    32.0,
+    64.0
+  ],
+  "selected_alpha": 1.0,
+  "n_trials": 10,
+  "n_sessions": 4387,
+  "start_session": "2009-01-05",
+  "end_session": "2026-06-12",
+  "content_sha256": "0d8a30d0089960bb7a4f9dfcc7d85caaf2b35565edbe202ecd9ca87acc9ac3cb",
+  "trials_file": "trials_2026-06-13.parquet"
+}
