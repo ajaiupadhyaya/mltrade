@@ -61,6 +61,23 @@ docker build -t mltrade:mvp .
 docker run --rm mltrade:mvp demo run
 ```
 
+## Research experiments
+
+Run and tune the ridge research pipeline through immutable, versioned TOML
+specs with content-addressed run records, durable reports, local MLflow
+tracking, and resumable Optuna studies:
+
+```bash
+uv run mltrade data ingest                                   # publish a snapshot
+uv run mltrade experiment run experiments/ridge-baseline.toml
+uv run mltrade experiment tune experiments/ridge-balanced-search.toml --trials 12
+uv run mltrade experiment list
+```
+
+Every report is a research artifact and is **not a promotion decision**; live
+trading stays structurally disabled. Full runbook:
+`docs/runbooks/research-experiments.md`.
+
 ## Operator runbook
 
 Full workflow documentation (setup, demo, research, paper submission,
