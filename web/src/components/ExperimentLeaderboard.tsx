@@ -47,7 +47,7 @@ const COLS: { key: keyof ExperimentRun; label: string; align: "l" | "r"; w: stri
     { key: "run_id", label: "RUN", align: "l", w: "flex-1" },
     { key: "alpha", label: "ALPHA", align: "r", w: "w-16" },
     { key: "robust_sharpe", label: "ROBUST", align: "r", w: "w-20" },
-    { key: "sharpe_10_bps", label: "SHARPE@10", align: "r", w: "w-24" },
+    { key: "sharpe", label: "SHARPE", align: "r", w: "w-24" },
     { key: "max_drawdown", label: "MAX DD", align: "r", w: "w-20" },
     { key: "turnover", label: "TURNOVER", align: "r", w: "w-20" },
   ];

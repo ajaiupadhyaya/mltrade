@@ -200,27 +200,83 @@ def _forecast_payload(result: DemoResult) -> dict[str, Any]:
     }
 
 
-def _experiments_payload() -> dict[str, Any]:
-    """Read the research-experiment leaderboard if the platform is present.
+def _experiments_payload(settings: Settings) -> dict[str, Any]:
+    """Read the local research-experiment leaderboard if any runs exist.
 
-    The experiment registry (run records, comparison) ships in a separate
-    module that may not yet be merged.  When absent, return an honest empty
-    state the dashboard renders as a call-to-action rather than fabricated runs.
+    Compatible complete runs are ranked by robust Sharpe; blocked/failed/pruned
+    runs stay visible but unranked. When the registry is empty (a fresh
+    checkout), return an honest empty state the dashboard renders as a
+    call-to-action rather than fabricated runs.
     """
+    placeholder = {
+        "available": False,
+        "ranked_by": "robust_sharpe",
+        "runs": [],
+        "note": (
+            "No experiment runs yet. Run `mltrade experiment run "
+            "experiments/ridge-baseline.toml` to populate this leaderboard."
+        ),
+    }
+    root = settings.experiment_root
+    if root is None:
+        return placeholder
     try:
-        from mltrade.experiments import load_dashboard_leaderboard  # type: ignore
+        from mltrade.experiments import RunStore, compare_runs
+
+        records = RunStore(root).list_records()
     except Exception:
-        return {
-            "available": False,
-            "ranked_by": "robust_sharpe",
-            "runs": [],
-            "note": (
-                "No experiment runs yet. Run `mltrade experiment run "
-                "experiments/ridge-baseline.toml` to populate this leaderboard."
-            ),
-        }
-    runs = load_dashboard_leaderboard()  # pragma: no cover - exercised post-merge
-    return {"available": True, "ranked_by": "robust_sharpe", "runs": runs}
+        return placeholder
+    if not records:
+        return placeholder
+
+    by_id = {record.run_id: record for record in records}
+    result = compare_runs(tuple(records))
+
+    def alpha_of(record: Any) -> str:
+        value = record.parameters.get("model.alpha")
+        return f"{value:g}" if isinstance(value, int | float) else "—"
+
+    def fmt(value: float | None) -> str:
+        return f"{value:.2f}" if value is not None else "—"
+
+    runs: list[dict[str, Any]] = []
+    for ranked in result.ranking:
+        record = by_id.get(ranked.run_id)
+        runs.append(
+            {
+                "rank": ranked.rank,
+                "run_id": ranked.run_id,
+                "alpha": alpha_of(record) if record is not None else "—",
+                "robust_sharpe": fmt(ranked.robust_sharpe),
+                "sharpe": fmt(ranked.sharpe),
+                "max_drawdown": fmt(ranked.max_drawdown),
+                "turnover": fmt(ranked.turnover),
+                "status": record.status if record is not None else "complete",
+            }
+        )
+    for run_id in result.excluded_run_ids:
+        record = by_id.get(run_id)
+        if record is None:
+            continue
+        metrics = record.metrics
+        runs.append(
+            {
+                "rank": "—",
+                "run_id": run_id,
+                "alpha": alpha_of(record),
+                "robust_sharpe": fmt(metrics.robust_sharpe if metrics else None),
+                "sharpe": fmt(metrics.sharpe if metrics else None),
+                "max_drawdown": fmt(metrics.max_drawdown if metrics else None),
+                "turnover": fmt(metrics.turnover if metrics else None),
+                "status": record.status,
+            }
+        )
+    return {
+        "available": True,
+        "ranked_by": "robust_sharpe",
+        "runs": runs,
+        "compatible": result.compatible,
+    }
 
 
 def build_dashboard_payload(
@@ -266,7 +322,7 @@ def build_dashboard_payload(
         "execution": _execution_payload(result),
         "quality": _quality_payload(result),
         "forecast": _forecast_payload(result),
-        "experiments": _experiments_payload(),
+        "experiments": _experiments_payload(settings),
     }
 
 

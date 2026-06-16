@@ -124,7 +124,7 @@ export interface ExperimentRun {
   run_id: string;
   alpha: string;
   robust_sharpe: string;
-  sharpe_10_bps: string;
+  sharpe: string;
   max_drawdown: string;
   turnover: string;
   status: string;
