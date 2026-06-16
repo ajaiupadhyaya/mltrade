@@ -1,0 +1,35 @@
+schema_version = 1
+name = "ridge-baseline"
+description = "Untuned ridge-trend-v1 research baseline"
+seed = 42
+
+[dataset]
+name = "daily_bars"
+snapshot_id = "fixture-2026-06-12"
+universe_version = "mvp-etf-v1"
+feature_version = "trend-momentum-v1"
+
+[model]
+family = "ridge"
+version = "ridge-trend-v1"
+alpha = 1.0
+fit_intercept = true
+
+[validation]
+minimum_training_sessions = 504
+embargo_sessions = 21
+retrain_every_sessions = 21
+
+[costs]
+headline_bps = "5"
+sensitivity_bps = ["2", "5", "10"]
+
+[objective]
+name = "robust_sharpe"
+maximum_drawdown = -0.35
+maximum_turnover = 1.0
+
+[resources]
+max_trials = 1
+timeout_minutes = 10
+worker_count = 1
